@@ -2,13 +2,10 @@ SUMMARY = "Python bindings for llama.cpp."
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://LICENSE.md;md5=7b314940bc52f236ef5c740707a5a216"
 
-SRC_URI = "gitsm://github.com/abetlen/llama-cpp-python.git;protocol=https;nobranch=1"
+inherit pypi python_setuptools_build_meta
 
-SRCREV = "629bd1b333f60d24a01886c5f99019f4c7c3ea6c"
-
-inherit python_setuptools_build_meta
-
-PYPI_PACKAGE = "llama-cpp-python"
+PYPI_PACKAGE = "llama_cpp_python"
+SRC_URI[sha256sum] = "1139dbb54509074b70893fab8554e3b079aa9f4d312058ce4018ef0019e3de12"
 
 PACKAGECONFIG ??= "${@bb.utils.filter('DISTRO_FEATURES', 'vulkan', d)}"
 PACKAGECONFIG[vulkan] = "-DGGML_VULKAN=ON -DVulkan_INCLUDE_DIR=${STAGING_INCDIR} -DVulkan_LIBRARY=${STAGING_LIBDIR}/libvulkan.so -DGGML_SHADER_NATIVE_PATH=${STAGING_DIR_NATIVE},-DGGML_VULKAN=OFF,vulkan-headers vulkan-loader spirv-headers shaderc-native,vulkan-loader"
