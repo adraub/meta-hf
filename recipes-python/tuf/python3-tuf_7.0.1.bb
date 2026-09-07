@@ -1,5 +1,5 @@
 SUMMARY = "A secure updater framework for Python"
-LICENSE = "Apache-2.0"
+LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://LICENSE;md5=86d3f3a95c324c9479bd8986968f4327"
 
 inherit pypi python_hatchling
