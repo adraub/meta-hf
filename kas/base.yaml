@@ -88,4 +88,4 @@ local_conf_header:
     EXTRA_IMAGE_FEATURES ?= "empty-root-password allow-root-login allow-empty-password"
 
   image_append: |
-      IMAGE_INSTALL:append = " python3 python3-evaluate python3-transformers python3-diffusers python3-llama-cpp"
+      IMAGE_INSTALL:append = " python3 python3-evaluate python3-transformers python3-diffusers python3-llama-cpp python3-kernels"

@@ -1,0 +1,22 @@
+From d69da2960a7f4c0aee7946e7906a8fbb72c1d0a0 Mon Sep 17 00:00:00 2001
+From: adraub <adraub@gmail.com>
+Date: Mon, 7 Sep 2026 17:48:33 +0200
+Subject: [PATCH] Relax uv-build requirements
+
+---
+ pyproject.toml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/pyproject.toml b/pyproject.toml
+index f037ae5..d15049f 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -19,7 +19,7 @@ classifiers = [
+ Repository = "https://github.com/astral-sh/sigstore-models"
+ 
+ [build-system]
+-requires = ["uv_build>=0.9.0,<0.10"]
++requires = ["uv_build"]
+ build-backend = "uv_build"
+ 
+ [dependency-groups]

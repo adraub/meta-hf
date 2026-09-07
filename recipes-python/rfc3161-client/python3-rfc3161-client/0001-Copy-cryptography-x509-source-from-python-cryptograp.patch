@@ -1,0 +1,2444 @@
+From 568f6fe49f2bbe22a5df1b2dab68abe6e203031b Mon Sep 17 00:00:00 2001
+From: adraub <adraub@gmail.com>
+Date: Mon, 7 Sep 2026 20:41:02 +0200
+Subject: [PATCH] Copy cryptography-x509 source from python-cryptography 49.0.0
+ since no crates.io exists
+
+---
+ Cargo.lock                                 |   3 +-
+ Cargo.toml                                 |   2 +-
+ rust/Cargo.toml                            |   2 +-
+ rust/cryptography-x509/Cargo.toml          |   9 +
+ rust/cryptography-x509/src/certificate.rs  |  70 ++
+ rust/cryptography-x509/src/common.rs       | 808 +++++++++++++++++++++
+ rust/cryptography-x509/src/crl.rs          |  69 ++
+ rust/cryptography-x509/src/csr.rs          |  65 ++
+ rust/cryptography-x509/src/ec_constants.rs | 125 ++++
+ rust/cryptography-x509/src/extensions.rs   | 400 ++++++++++
+ rust/cryptography-x509/src/lib.rs          |  21 +
+ rust/cryptography-x509/src/name.rs         |  90 +++
+ rust/cryptography-x509/src/ocsp_req.rs     |  45 ++
+ rust/cryptography-x509/src/ocsp_resp.rs    |  93 +++
+ rust/cryptography-x509/src/oid.rs          | 181 +++++
+ rust/cryptography-x509/src/pkcs12.rs       |  85 +++
+ rust/cryptography-x509/src/pkcs7.rs        | 179 +++++
+ rust/cryptography-x509/src/pkcs8.rs        |  12 +
+ rust/tsp-asn1/Cargo.toml                   |   2 +-
+ 19 files changed, 2256 insertions(+), 5 deletions(-)
+ create mode 100644 rust/cryptography-x509/Cargo.toml
+ create mode 100644 rust/cryptography-x509/src/certificate.rs
+ create mode 100644 rust/cryptography-x509/src/common.rs
+ create mode 100644 rust/cryptography-x509/src/crl.rs
+ create mode 100644 rust/cryptography-x509/src/csr.rs
+ create mode 100644 rust/cryptography-x509/src/ec_constants.rs
+ create mode 100644 rust/cryptography-x509/src/extensions.rs
+ create mode 100644 rust/cryptography-x509/src/lib.rs
+ create mode 100644 rust/cryptography-x509/src/name.rs
+ create mode 100644 rust/cryptography-x509/src/ocsp_req.rs
+ create mode 100644 rust/cryptography-x509/src/ocsp_resp.rs
+ create mode 100644 rust/cryptography-x509/src/oid.rs
+ create mode 100644 rust/cryptography-x509/src/pkcs12.rs
+ create mode 100644 rust/cryptography-x509/src/pkcs7.rs
+ create mode 100644 rust/cryptography-x509/src/pkcs8.rs
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 080d68c..40b1102 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -97,8 +97,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "cryptography-x509"
+-version = "0.49.0"
+-source = "git+https://github.com/pyca/cryptography.git?tag=49.0.0#e300bbe2f1bec75e5ee7e0ab7b196958831b3db6"
++version = "0.0.1"
+ dependencies = [
+  "asn1",
+ ]
+diff --git a/Cargo.toml b/Cargo.toml
+index 4542a02..552248f 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -4,11 +4,11 @@ resolver = "2"
+ members = [
+     "rust/",
+     "rust/tsp-asn1",
++    "rust/cryptography-x509",
+ ]
+ 
+ [workspace.dependencies]
+ asn1 = "0.24.1"
+-cryptography-x509 = { git = "https://github.com/pyca/cryptography.git", tag = "49.0.0" }
+ hex = "0.4"
+ 
+ [workspace.package]
+diff --git a/rust/Cargo.toml b/rust/Cargo.toml
+index cf092a6..3c44e40 100644
+--- a/rust/Cargo.toml
++++ b/rust/Cargo.toml
+@@ -18,7 +18,7 @@ self_cell = "1"
+ hex.workspace = true
+ sha2 = "0.11.0"
+ rand = "0.10.0"
+-cryptography-x509.workspace = true
++cryptography-x509= { path = "cryptography-x509" }
+ openssl = { version = "0.10.80", features = ["vendored"] }
+ 
+ [build-dependencies]
+diff --git a/rust/cryptography-x509/Cargo.toml b/rust/cryptography-x509/Cargo.toml
+new file mode 100644
+index 0000000..59405bb
+--- /dev/null
++++ b/rust/cryptography-x509/Cargo.toml
+@@ -0,0 +1,9 @@
++[package]
++name = "cryptography-x509"
++version.workspace = true
++edition.workspace = true
++authors.workspace = true
++publish.workspace = true
++
++[dependencies]
++asn1.workspace = true
+\ No newline at end of file
+diff --git a/rust/cryptography-x509/src/certificate.rs b/rust/cryptography-x509/src/certificate.rs
+new file mode 100644
+index 0000000..73565d3
+--- /dev/null
++++ b/rust/cryptography-x509/src/certificate.rs
+@@ -0,0 +1,70 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use crate::extensions::{DuplicateExtensionsError, Extensions};
++use crate::name::NameReadable;
++use crate::{common, extensions, name};
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, PartialEq, Eq, Clone)]
++pub struct Certificate<'a> {
++    pub tbs_cert: TbsCertificate<'a>,
++    pub signature_alg: common::AlgorithmIdentifier<'a>,
++    pub signature: asn1::BitString<'a>,
++}
++
++impl<'a> Certificate<'a> {
++    /// Returns the certificate's issuer.
++    pub fn issuer(&self) -> &NameReadable<'_> {
++        self.tbs_cert.issuer.unwrap_read()
++    }
++
++    /// Returns the certificate's subject.
++    pub fn subject(&self) -> &NameReadable<'_> {
++        self.tbs_cert.subject.unwrap_read()
++    }
++
++    /// Returns an iterable container over the certificate's extension, or
++    /// an error if the extension set contains a duplicate extension.
++    pub fn extensions(&self) -> Result<Extensions<'a>, DuplicateExtensionsError> {
++        self.tbs_cert.extensions()
++    }
++}
++
++// This should really be a wrapper around `BigUint` that rejects 0s, however
++// for the time being we support invalid serial numbers (mostly because the MS
++// trust store has a certificate with a negative serial number).
++pub type SerialNumber<'a> = asn1::BigInt<'a>;
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, PartialEq, Eq, Clone)]
++pub struct TbsCertificate<'a> {
++    #[explicit(0)]
++    #[default(0)]
++    pub version: u8,
++    pub serial: SerialNumber<'a>,
++    pub signature_alg: common::AlgorithmIdentifier<'a>,
++
++    pub issuer: name::Name<'a>,
++    pub validity: Validity,
++    pub subject: name::Name<'a>,
++
++    pub spki: common::WithTlv<'a, common::SubjectPublicKeyInfo<'a>>,
++    #[implicit(1)]
++    pub issuer_unique_id: Option<asn1::BitString<'a>>,
++    #[implicit(2)]
++    pub subject_unique_id: Option<asn1::BitString<'a>>,
++    #[explicit(3)]
++    pub raw_extensions: Option<extensions::RawExtensions<'a>>,
++}
++
++impl<'a> TbsCertificate<'a> {
++    pub fn extensions(&self) -> Result<Extensions<'a>, DuplicateExtensionsError> {
++        Extensions::from_raw_extensions(self.raw_extensions.as_ref())
++    }
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, PartialEq, Eq, Clone)]
++pub struct Validity {
++    pub not_before: common::Time,
++    pub not_after: common::Time,
++}
+diff --git a/rust/cryptography-x509/src/common.rs b/rust/cryptography-x509/src/common.rs
+new file mode 100644
+index 0000000..f7fd0c2
+--- /dev/null
++++ b/rust/cryptography-x509/src/common.rs
+@@ -0,0 +1,808 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use asn1::{Asn1DefinedByWritable, SimpleAsn1Writable};
++
++use crate::oid;
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Hash, Clone, Eq, Debug)]
++pub struct AlgorithmIdentifier<'a> {
++    pub oid: asn1::DefinedByMarker<asn1::ObjectIdentifier>,
++    #[defined_by(oid)]
++    pub params: AlgorithmParameters<'a>,
++}
++
++impl AlgorithmIdentifier<'_> {
++    pub fn oid(&self) -> &asn1::ObjectIdentifier {
++        self.params.item()
++    }
++}
++
++#[derive(asn1::Asn1DefinedByRead, asn1::Asn1DefinedByWrite, PartialEq, Eq, Hash, Clone, Debug)]
++pub enum AlgorithmParameters<'a> {
++    #[defined_by(oid::SHA1_OID)]
++    Sha1(Option<asn1::Null>),
++    #[defined_by(oid::SHA224_OID)]
++    Sha224(Option<asn1::Null>),
++    #[defined_by(oid::SHA256_OID)]
++    Sha256(Option<asn1::Null>),
++    #[defined_by(oid::SHA384_OID)]
++    Sha384(Option<asn1::Null>),
++    #[defined_by(oid::SHA512_OID)]
++    Sha512(Option<asn1::Null>),
++    #[defined_by(oid::SHA3_224_OID)]
++    Sha3_224(Option<asn1::Null>),
++    #[defined_by(oid::SHA3_256_OID)]
++    Sha3_256(Option<asn1::Null>),
++    #[defined_by(oid::SHA3_384_OID)]
++    Sha3_384(Option<asn1::Null>),
++    #[defined_by(oid::SHA3_512_OID)]
++    Sha3_512(Option<asn1::Null>),
++    #[defined_by(oid::SHA3_224_NIST_OID)]
++    Sha3_224Nist(Option<asn1::Null>),
++    #[defined_by(oid::SHA3_256_NIST_OID)]
++    Sha3_256Nist(Option<asn1::Null>),
++    #[defined_by(oid::SHA3_384_NIST_OID)]
++    Sha3_384Nist(Option<asn1::Null>),
++    #[defined_by(oid::SHA3_512_NIST_OID)]
++    Sha3_512Nist(Option<asn1::Null>),
++
++    #[defined_by(oid::ED25519_OID)]
++    Ed25519,
++    #[defined_by(oid::ED448_OID)]
++    Ed448,
++
++    #[defined_by(oid::ML_DSA_44_OID)]
++    MlDsa44,
++    #[defined_by(oid::ML_DSA_65_OID)]
++    MlDsa65,
++    #[defined_by(oid::ML_DSA_87_OID)]
++    MlDsa87,
++
++    #[defined_by(oid::X25519_OID)]
++    X25519,
++    #[defined_by(oid::X448_OID)]
++    X448,
++
++    #[defined_by(oid::ML_KEM_768_OID)]
++    MlKem768,
++    #[defined_by(oid::ML_KEM_1024_OID)]
++    MlKem1024,
++
++    // These encodings are only used in SPKI AlgorithmIdentifiers.
++    #[defined_by(oid::EC_OID)]
++    Ec(EcParameters<'a>),
++
++    #[defined_by(oid::RSA_OID)]
++    Rsa(Option<asn1::Null>),
++
++    #[defined_by(oid::ECDSA_WITH_SHA224_OID)]
++    EcDsaWithSha224,
++    #[defined_by(oid::ECDSA_WITH_SHA256_OID)]
++    EcDsaWithSha256,
++    #[defined_by(oid::ECDSA_WITH_SHA384_OID)]
++    EcDsaWithSha384,
++    #[defined_by(oid::ECDSA_WITH_SHA512_OID)]
++    EcDsaWithSha512,
++
++    #[defined_by(oid::ECDSA_WITH_SHA3_224_OID)]
++    EcDsaWithSha3_224,
++    #[defined_by(oid::ECDSA_WITH_SHA3_256_OID)]
++    EcDsaWithSha3_256,
++    #[defined_by(oid::ECDSA_WITH_SHA3_384_OID)]
++    EcDsaWithSha3_384,
++    #[defined_by(oid::ECDSA_WITH_SHA3_512_OID)]
++    EcDsaWithSha3_512,
++
++    #[defined_by(oid::RSA_WITH_SHA1_OID)]
++    RsaWithSha1(Option<asn1::Null>),
++    #[defined_by(oid::RSA_WITH_SHA1_ALT_OID)]
++    RsaWithSha1Alt(Option<asn1::Null>),
++
++    #[defined_by(oid::RSA_WITH_SHA224_OID)]
++    RsaWithSha224(Option<asn1::Null>),
++    #[defined_by(oid::RSA_WITH_SHA256_OID)]
++    RsaWithSha256(Option<asn1::Null>),
++    #[defined_by(oid::RSA_WITH_SHA384_OID)]
++    RsaWithSha384(Option<asn1::Null>),
++    #[defined_by(oid::RSA_WITH_SHA512_OID)]
++    RsaWithSha512(Option<asn1::Null>),
++
++    #[defined_by(oid::RSA_WITH_SHA3_224_OID)]
++    RsaWithSha3_224(Option<asn1::Null>),
++    #[defined_by(oid::RSA_WITH_SHA3_256_OID)]
++    RsaWithSha3_256(Option<asn1::Null>),
++    #[defined_by(oid::RSA_WITH_SHA3_384_OID)]
++    RsaWithSha3_384(Option<asn1::Null>),
++    #[defined_by(oid::RSA_WITH_SHA3_512_OID)]
++    RsaWithSha3_512(Option<asn1::Null>),
++
++    // RsaPssParameters must be present in Certificate::tbs_cert::signature_alg::params
++    // and Certificate::signature_alg::params, but Certificate::tbs_cert::spki::algorithm::oid
++    // also uses RSASSA_PSS_OID and the params field is omitted since it has no meaning there.
++    #[defined_by(oid::RSASSA_PSS_OID)]
++    RsaPss(Option<Box<RsaPssParameters<'a>>>),
++
++    #[defined_by(oid::DSA_OID)]
++    Dsa(DssParams<'a>),
++
++    #[defined_by(oid::DSA_WITH_SHA224_OID)]
++    DsaWithSha224,
++    #[defined_by(oid::DSA_WITH_SHA256_OID)]
++    DsaWithSha256,
++    #[defined_by(oid::DSA_WITH_SHA384_OID)]
++    DsaWithSha384,
++    #[defined_by(oid::DSA_WITH_SHA512_OID)]
++    DsaWithSha512,
++
++    #[defined_by(oid::DH_OID)]
++    Dh(DHXParams<'a>),
++    #[defined_by(oid::DH_KEY_AGREEMENT_OID)]
++    DhKeyAgreement(BasicDHParams<'a>),
++
++    #[defined_by(oid::PBES2_OID)]
++    Pbes2(PBES2Params<'a>),
++
++    #[defined_by(oid::PBKDF2_OID)]
++    Pbkdf2(PBKDF2Params<'a>),
++    #[defined_by(oid::SCRYPT_OID)]
++    Scrypt(ScryptParams<'a>),
++
++    #[defined_by(oid::HMAC_WITH_SHA1_OID)]
++    HmacWithSha1(Option<asn1::Null>),
++    #[defined_by(oid::HMAC_WITH_SHA224_OID)]
++    HmacWithSha224(Option<asn1::Null>),
++    #[defined_by(oid::HMAC_WITH_SHA256_OID)]
++    HmacWithSha256(Option<asn1::Null>),
++    #[defined_by(oid::HMAC_WITH_SHA384_OID)]
++    HmacWithSha384(Option<asn1::Null>),
++    #[defined_by(oid::HMAC_WITH_SHA512_OID)]
++    HmacWithSha512(Option<asn1::Null>),
++
++    // Used only in PKCS#7 AlgorithmIdentifiers
++    // https://datatracker.ietf.org/doc/html/rfc3565#section-4.1
++    //
++    // From RFC 3565 section 4.1:
++    // The AlgorithmIdentifier parameters field MUST be present, and the
++    // parameters field MUST contain a AES-IV:
++    //
++    // AES-IV ::= OCTET STRING (SIZE(16))
++    #[defined_by(oid::AES_128_CBC_OID)]
++    Aes128Cbc([u8; 16]),
++    #[defined_by(oid::AES_192_CBC_OID)]
++    Aes192Cbc([u8; 16]),
++    #[defined_by(oid::AES_256_CBC_OID)]
++    Aes256Cbc([u8; 16]),
++
++    #[defined_by(oid::DES_EDE3_CBC_OID)]
++    DesEde3Cbc([u8; 8]),
++
++    #[defined_by(oid::RC2_CBC)]
++    Rc2Cbc(Rc2CbcParams),
++
++    #[defined_by(oid::PBE_WITH_MD5_AND_DES_CBC)]
++    PbeWithMd5AndDesCbc(PbeParams),
++    #[defined_by(oid::PBE_WITH_SHA_AND_128_BIT_RC4)]
++    PbeWithShaAnd128BitRc4(Pkcs12PbeParams<'a>),
++    #[defined_by(oid::PBE_WITH_SHA_AND_3KEY_TRIPLEDES_CBC)]
++    PbeWithShaAnd3KeyTripleDesCbc(Pkcs12PbeParams<'a>),
++    #[defined_by(oid::PBE_WITH_SHA_AND_40_BIT_RC2_CBC)]
++    PbeWithShaAnd40BitRc2Cbc(Pkcs12PbeParams<'a>),
++
++    #[default]
++    Other(asn1::ObjectIdentifier, Option<asn1::Tlv<'a>>),
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, PartialEq, Eq, Clone)]
++pub struct SubjectPublicKeyInfo<'a> {
++    pub algorithm: AlgorithmIdentifier<'a>,
++    pub subject_public_key: asn1::BitString<'a>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct Pkcs1RsaPublicKey<'a> {
++    pub n: asn1::BigUint<'a>,
++    pub e: asn1::BigUint<'a>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone)]
++pub struct AttributeTypeValue<'a> {
++    pub type_id: asn1::ObjectIdentifier,
++    pub value: AttributeValue<'a>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone)]
++pub enum AttributeValue<'a> {
++    UniversalString(asn1::UniversalString<'a>),
++    BmpString(asn1::BMPString<'a>),
++    PrintableString(asn1::PrintableString<'a>),
++
++    // Must be last, because enums parse things in order.
++    AnyString(RawTlv<'a>),
++}
++
++impl AttributeValue<'_> {
++    pub fn tag(&self) -> asn1::Tag {
++        match self {
++            AttributeValue::AnyString(tlv) => tlv.tag(),
++            AttributeValue::PrintableString(_) => asn1::PrintableString::TAG,
++            AttributeValue::UniversalString(_) => asn1::UniversalString::TAG,
++            AttributeValue::BmpString(_) => asn1::BMPString::TAG,
++        }
++    }
++}
++
++// Like `asn1::Tlv` but doesn't store `full_data` so it can be constructed from
++// an un-encoded tag and value.
++#[derive(Hash, PartialEq, Eq, Clone)]
++pub struct RawTlv<'a> {
++    tag: asn1::Tag,
++    value: &'a [u8],
++}
++
++impl<'a> RawTlv<'a> {
++    pub fn new(tag: asn1::Tag, value: &'a [u8]) -> Self {
++        RawTlv { tag, value }
++    }
++
++    pub fn tag(&self) -> asn1::Tag {
++        self.tag
++    }
++    pub fn data(&self) -> &'a [u8] {
++        self.value
++    }
++}
++impl<'a> asn1::Asn1Readable<'a> for RawTlv<'a> {
++    fn parse(parser: &mut asn1::Parser<'a>) -> asn1::ParseResult<Self> {
++        let tlv = parser.read_element::<asn1::Tlv<'a>>()?;
++        Ok(RawTlv::new(tlv.tag(), tlv.data()))
++    }
++
++    fn can_parse(_tag: asn1::Tag) -> bool {
++        true
++    }
++}
++impl asn1::Asn1Writable for RawTlv<'_> {
++    type Error = asn1::WriteError;
++    fn write(&self, w: &mut asn1::Writer<'_>) -> asn1::WriteResult {
++        w.write_tlv(self.tag, Some(self.value.len()), move |dest| {
++            dest.push_slice(self.value)
++        })
++    }
++
++    fn encoded_length(&self) -> Option<usize> {
++        // TODO: we're missing an API to make this easy.
++        None
++    }
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone)]
++pub enum Time {
++    UtcTime(asn1::UtcTime),
++    GeneralizedTime(asn1::X509GeneralizedTime),
++}
++
++impl Time {
++    pub fn as_datetime(&self) -> &asn1::DateTime {
++        match self {
++            Time::UtcTime(data) => data.as_datetime(),
++            Time::GeneralizedTime(data) => data.as_datetime(),
++        }
++    }
++}
++
++#[derive(Hash, PartialEq, Eq, Clone)]
++pub enum Asn1ReadableOrWritable<T, U> {
++    Read(T),
++    Write(U),
++}
++
++impl<T, U> Asn1ReadableOrWritable<T, U> {
++    pub fn new_read(v: T) -> Self {
++        Asn1ReadableOrWritable::Read(v)
++    }
++
++    pub fn new_write(v: U) -> Self {
++        Asn1ReadableOrWritable::Write(v)
++    }
++
++    pub fn unwrap_read(&self) -> &T {
++        match self {
++            Asn1ReadableOrWritable::Read(v) => v,
++            Asn1ReadableOrWritable::Write(_) => panic!("unwrap_read called on a Write value"),
++        }
++    }
++}
++
++impl<'a, T: asn1::SimpleAsn1Readable<'a>, U> asn1::SimpleAsn1Readable<'a>
++    for Asn1ReadableOrWritable<T, U>
++{
++    const TAG: asn1::Tag = T::TAG;
++    fn parse_data(data: &'a [u8]) -> asn1::ParseResult<Self> {
++        Ok(Self::new_read(T::parse_data(data)?))
++    }
++}
++
++impl<
++        T: asn1::SimpleAsn1Writable<Error = asn1::WriteError>,
++        U: asn1::SimpleAsn1Writable<Error = asn1::WriteError>,
++    > asn1::SimpleAsn1Writable for Asn1ReadableOrWritable<T, U>
++{
++    type Error = asn1::WriteError;
++    const TAG: asn1::Tag = U::TAG;
++    fn write_data(&self, w: &mut asn1::WriteBuf) -> asn1::WriteResult {
++        match self {
++            Asn1ReadableOrWritable::Read(v) => T::write_data(v, w),
++            Asn1ReadableOrWritable::Write(v) => U::write_data(v, w),
++        }
++    }
++
++    fn data_length(&self) -> Option<usize> {
++        match self {
++            Asn1ReadableOrWritable::Read(v) => T::data_length(v),
++            Asn1ReadableOrWritable::Write(v) => U::data_length(v),
++        }
++    }
++}
++
++pub trait Asn1Operation {
++    type SequenceOfVec<'a, T>
++    where
++        T: 'a;
++    type SetOfVec<'a, T>
++    where
++        T: 'a;
++    type OwnedBitString<'a>;
++}
++
++pub struct Asn1Read;
++pub struct Asn1Write;
++
++impl Asn1Operation for Asn1Read {
++    type SequenceOfVec<'a, T>
++        = asn1::SequenceOf<'a, T>
++    where
++        T: 'a;
++    type SetOfVec<'a, T>
++        = asn1::SetOf<'a, T>
++    where
++        T: 'a;
++    type OwnedBitString<'a> = asn1::BitString<'a>;
++}
++impl Asn1Operation for Asn1Write {
++    type SequenceOfVec<'a, T>
++        = asn1::SequenceOfWriter<'a, T, Vec<T>>
++    where
++        T: 'a;
++    type SetOfVec<'a, T>
++        = asn1::SetOfWriter<'a, T, Vec<T>>
++    where
++        T: 'a;
++    type OwnedBitString<'a> = asn1::OwnedBitString;
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct DssSignature<'a> {
++    pub r: asn1::BigUint<'a>,
++    pub s: asn1::BigUint<'a>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct DHParams<'a> {
++    pub p: asn1::BigUint<'a>,
++    pub g: asn1::BigUint<'a>,
++    pub q: Option<asn1::BigUint<'a>>,
++}
++
++// From PKCS#3 Section 9
++// DHParameter ::= SEQUENCE {
++//     prime INTEGER, -- p
++//     base INTEGER, -- g
++//     privateValueLength INTEGER OPTIONAL
++// }
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Clone, PartialEq, Eq, Debug, Hash)]
++pub struct BasicDHParams<'a> {
++    pub p: asn1::BigUint<'a>,
++    pub g: asn1::BigUint<'a>,
++    pub private_value_length: Option<u32>,
++}
++
++// From https://www.rfc-editor.org/rfc/rfc3279#section-2.3.3
++// DomainParameters ::= SEQUENCE {
++//     p       INTEGER, -- odd prime, p=jq +1
++//     g       INTEGER, -- generator, g
++//     q       INTEGER, -- factor of p-1
++//     j       INTEGER OPTIONAL, -- subgroup factor
++//     validationParms  ValidationParms OPTIONAL
++// }
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Clone, PartialEq, Eq, Debug, Hash)]
++pub struct DHXParams<'a> {
++    pub p: asn1::BigUint<'a>,
++    pub g: asn1::BigUint<'a>,
++    pub q: asn1::BigUint<'a>,
++    pub j: Option<asn1::BigUint<'a>>,
++    // No support for this, so don't bother filling out the fields.
++    pub validation_params: Option<asn1::Sequence<'a>>,
++}
++
++// RSA-PSS ASN.1 default hash algorithm
++pub const PSS_SHA1_HASH_ALG: AlgorithmIdentifier<'_> = AlgorithmIdentifier {
++    oid: asn1::DefinedByMarker::marker(),
++    params: AlgorithmParameters::Sha1(Some(())),
++};
++
++// RSA-PSS ASN.1 hash algorithm definitions specified under the CA/B Forum BRs.
++pub const PSS_SHA256_HASH_ALG: AlgorithmIdentifier<'_> = AlgorithmIdentifier {
++    oid: asn1::DefinedByMarker::marker(),
++    params: AlgorithmParameters::Sha256(Some(())),
++};
++
++pub const PSS_SHA384_HASH_ALG: AlgorithmIdentifier<'_> = AlgorithmIdentifier {
++    oid: asn1::DefinedByMarker::marker(),
++    params: AlgorithmParameters::Sha384(Some(())),
++};
++
++pub const PSS_SHA512_HASH_ALG: AlgorithmIdentifier<'_> = AlgorithmIdentifier {
++    oid: asn1::DefinedByMarker::marker(),
++    params: AlgorithmParameters::Sha512(Some(())),
++};
++
++// This is defined as an AlgorithmIdentifier in RFC 4055,
++// but the mask generation algorithm **must** contain an AlgorithmIdentifier
++// in its params, so we define it this way.
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, Clone, PartialEq, Eq, Debug)]
++pub struct MaskGenAlgorithm<'a> {
++    pub oid: asn1::ObjectIdentifier,
++    pub params: AlgorithmIdentifier<'a>,
++}
++
++// RSA-PSS ASN.1 default mask gen algorithm
++pub const PSS_SHA1_MASK_GEN_ALG: MaskGenAlgorithm<'_> = MaskGenAlgorithm {
++    oid: oid::MGF1_OID,
++    params: PSS_SHA1_HASH_ALG,
++};
++
++// RSA-PSS ASN.1 mask gen algorithms defined under the CA/B Forum BRs.
++pub const PSS_SHA256_MASK_GEN_ALG: MaskGenAlgorithm<'_> = MaskGenAlgorithm {
++    oid: oid::MGF1_OID,
++    params: PSS_SHA256_HASH_ALG,
++};
++
++pub const PSS_SHA384_MASK_GEN_ALG: MaskGenAlgorithm<'_> = MaskGenAlgorithm {
++    oid: oid::MGF1_OID,
++    params: PSS_SHA384_HASH_ALG,
++};
++
++pub const PSS_SHA512_MASK_GEN_ALG: MaskGenAlgorithm<'_> = MaskGenAlgorithm {
++    oid: oid::MGF1_OID,
++    params: PSS_SHA512_HASH_ALG,
++};
++
++// From RFC 5480 section 2.1.1:
++// ECParameters ::= CHOICE {
++//     namedCurve         OBJECT IDENTIFIER
++//     -- implicitCurve   NULL
++//     -- specifiedCurve  SpecifiedECDomain }
++//
++// Only the namedCurve form may appear in PKIX. Other forms may be found in
++// other PKIs.
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, Clone, PartialEq, Eq, Debug)]
++pub enum EcParameters<'a> {
++    NamedCurve(asn1::ObjectIdentifier),
++    ImplicitCurve(asn1::Null),
++    SpecifiedCurve(SpecifiedECDomain<'a>),
++}
++
++// From RFC 3279 Section 2.3.5 and RFC 5480 Appendix A
++// SpecifiedECDomain ::= SEQUENCE {
++//   version           ECPVer,
++//   fieldID           FieldID,
++//   curve             Curve,
++//   base              ECPoint,
++//   order             INTEGER,
++//   cofactor          INTEGER OPTIONAL
++// }
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, Clone, Eq, PartialEq, Debug)]
++pub struct SpecifiedECDomain<'a> {
++    pub version: u8,
++    pub field_id: FieldID<'a>,
++    pub curve: Curve<'a>,
++    pub base: &'a [u8], // ECPoint can be compressed or uncompressed
++    pub order: asn1::BigUint<'a>,
++    pub cofactor: Option<u8>,
++}
++
++// From RFC 3279 Section 2.3.5
++// FieldID ::= SEQUENCE {
++//   fieldType   FIELD-TYPE.&id({SupportedFieldTypes}),
++//   parameters  FIELD-TYPE.&Type({SupportedFieldTypes}{@fieldType})
++// }
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, Clone, PartialEq, Eq, Debug)]
++pub struct FieldID<'a> {
++    pub field_type: asn1::DefinedByMarker<asn1::ObjectIdentifier>,
++    #[defined_by(field_type)]
++    pub parameters: FieldParameters<'a>,
++}
++
++#[derive(asn1::Asn1DefinedByRead, asn1::Asn1DefinedByWrite, Hash, Clone, PartialEq, Eq, Debug)]
++pub enum FieldParameters<'a> {
++    #[defined_by(oid::PRIME_FIELD_OID)]
++    PrimeField(asn1::BigUint<'a>),
++    #[defined_by(oid::CHARACTERISTIC_TWO_FIELD_OID)]
++    CharacteristicTwo(asn1::Sequence<'a>),
++}
++
++// From RFC 3279 Section 2.3.5
++// Curve ::= SEQUENCE {
++//   a         FieldElement,
++//   b         FieldElement,
++//   seed      BIT STRING OPTIONAL
++// }
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, Clone, PartialEq, Eq, Debug)]
++pub struct Curve<'a> {
++    pub a: &'a [u8], // FieldElement
++    pub b: &'a [u8], // FieldElement
++    pub seed: Option<asn1::BitString<'a>>,
++}
++
++// From RFC 4055 section 3.1:
++// RSASSA-PSS-params  ::=  SEQUENCE  {
++//     hashAlgorithm      [0] HashAlgorithm DEFAULT
++//                               sha1Identifier,
++//     maskGenAlgorithm   [1] MaskGenAlgorithm DEFAULT
++//                               mgf1SHA1Identifier,
++//     saltLength         [2] INTEGER DEFAULT 20,
++//     trailerField       [3] INTEGER DEFAULT 1  }
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, Clone, PartialEq, Eq, Debug)]
++pub struct RsaPssParameters<'a> {
++    #[explicit(0)]
++    #[default(PSS_SHA1_HASH_ALG)]
++    pub hash_algorithm: AlgorithmIdentifier<'a>,
++    #[explicit(1)]
++    #[default(PSS_SHA1_MASK_GEN_ALG)]
++    pub mask_gen_algorithm: MaskGenAlgorithm<'a>,
++    #[explicit(2)]
++    #[default(20u16)]
++    pub salt_length: u16,
++    // While the RFC describes this field as `DEFAULT 1`, it also states that
++    // parsers must accept this field being encoded with a value of 1, in
++    // conflict with DER's requirement that field DEFAULT values not be
++    // encoded. Thus we just treat this as an optional field.
++    //
++    // Users of this struct should supply `None` to indicate the DEFAULT value
++    // of 1, or `Some` to indicate a different value. Note that if you supply
++    // `Some(1)` this will result in encoding a violation of the DER rules,
++    // thus this should never be done except to round-trip an existing
++    // structure.
++    #[explicit(3)]
++    pub _trailer_field: Option<u8>,
++}
++
++// https://datatracker.ietf.org/doc/html/rfc3279#section-2.3.2
++//
++// Dss-Parms ::= SEQUENCE  {
++//     p  INTEGER,
++//     q  INTEGER,
++//     g  INTEGER
++// }
++#[derive(asn1::Asn1Read, asn1::Asn1Write, Hash, Clone, PartialEq, Eq, Debug)]
++pub struct DssParams<'a> {
++    pub p: asn1::BigUint<'a>,
++    pub q: asn1::BigUint<'a>,
++    pub g: asn1::BigUint<'a>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone, Debug)]
++pub struct PBES2Params<'a> {
++    pub key_derivation_func: Box<AlgorithmIdentifier<'a>>,
++    pub encryption_scheme: Box<AlgorithmIdentifier<'a>>,
++}
++
++const HMAC_SHA1_ALG: AlgorithmIdentifier<'static> = AlgorithmIdentifier {
++    oid: asn1::DefinedByMarker::marker(),
++    params: AlgorithmParameters::HmacWithSha1(Some(())),
++};
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone, Debug)]
++pub struct PBKDF2Params<'a> {
++    // This is technically a CHOICE that can be an otherSource. We don't
++    // support that.
++    pub salt: &'a [u8],
++    pub iteration_count: u64,
++    pub key_length: Option<u64>,
++    #[default(HMAC_SHA1_ALG)]
++    pub prf: Box<AlgorithmIdentifier<'a>>,
++}
++
++// RFC 7914 Section 7
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone, Debug)]
++pub struct ScryptParams<'a> {
++    pub salt: &'a [u8],
++    pub cost_parameter: u64,
++    pub block_size: u64,
++    pub parallelization_parameter: u64,
++    pub key_length: Option<u32>,
++}
++
++// RFC 8018 Appendix A.3
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone, Debug)]
++pub struct PbeParams {
++    pub salt: [u8; 8],
++    pub iterations: u64,
++}
++
++// From RFC 7202 Appendix C
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone, Debug)]
++pub struct Pkcs12PbeParams<'a> {
++    pub salt: &'a [u8],
++    pub iterations: u64,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone, Debug)]
++pub struct Rc2CbcParams {
++    pub version: Option<u32>,
++    pub iv: [u8; 8],
++}
++
++/// A VisibleString ASN.1 element whose contents is not validated as meeting the
++/// requirements (visible characters of IA5), and instead is only known to be
++/// valid UTF-8.
++pub struct UnvalidatedVisibleString<'a>(pub &'a str);
++
++impl<'a> UnvalidatedVisibleString<'a> {
++    pub fn as_str(&self) -> &'a str {
++        self.0
++    }
++}
++
++impl<'a> asn1::SimpleAsn1Readable<'a> for UnvalidatedVisibleString<'a> {
++    const TAG: asn1::Tag = <asn1::VisibleString<'_> as asn1::SimpleAsn1Readable>::TAG;
++    fn parse_data(data: &'a [u8]) -> asn1::ParseResult<Self> {
++        Ok(UnvalidatedVisibleString(
++            std::str::from_utf8(data)
++                .map_err(|_| asn1::ParseError::new(asn1::ParseErrorKind::InvalidValue))?,
++        ))
++    }
++}
++
++impl asn1::SimpleAsn1Writable for UnvalidatedVisibleString<'_> {
++    type Error = asn1::WriteError;
++    const TAG: asn1::Tag = asn1::VisibleString::TAG;
++    fn write_data(&self, _: &mut asn1::WriteBuf) -> asn1::WriteResult {
++        unimplemented!();
++    }
++
++    fn data_length(&self) -> Option<usize> {
++        None
++    }
++}
++
++/// A BMPString ASN.1 element, where it is stored as a UTF-8 string in memory.
++pub struct Utf8StoredBMPString<'a>(pub &'a str);
++
++impl<'a> Utf8StoredBMPString<'a> {
++    pub fn new(s: &'a str) -> Self {
++        Utf8StoredBMPString(s)
++    }
++}
++
++impl asn1::SimpleAsn1Writable for Utf8StoredBMPString<'_> {
++    type Error = asn1::WriteError;
++    const TAG: asn1::Tag = asn1::BMPString::TAG;
++    fn write_data(&self, writer: &mut asn1::WriteBuf) -> asn1::WriteResult {
++        for ch in self.0.encode_utf16() {
++            writer.push_slice(&ch.to_be_bytes())?;
++        }
++        Ok(())
++    }
++
++    fn data_length(&self) -> Option<usize> {
++        Some(self.0.encode_utf16().count() * 2)
++    }
++}
++
++#[derive(Clone)]
++pub struct WithTlv<'a, T> {
++    tlv: Option<asn1::Tlv<'a>>,
++    value: T,
++}
++
++impl<'a, T> WithTlv<'a, T> {
++    /// Constructs a value that was not parsed, and therefore has no TLV.
++    /// Calling `tlv()` on it will panic.
++    pub fn new(value: T) -> Self {
++        Self { tlv: None, value }
++    }
++
++    pub fn tlv(&self) -> &asn1::Tlv<'a> {
++        self.tlv
++            .as_ref()
++            .expect("tlv() may only be called on parsed values")
++    }
++}
++
++impl<T> std::ops::Deref for WithTlv<'_, T> {
++    type Target = T;
++
++    fn deref(&self) -> &Self::Target {
++        &self.value
++    }
++}
++
++impl<'a, T: asn1::Asn1Readable<'a>> asn1::Asn1Readable<'a> for WithTlv<'a, T> {
++    fn parse(p: &mut asn1::Parser<'a>) -> asn1::ParseResult<Self> {
++        let tlv = p.read_element::<asn1::Tlv<'a>>()?;
++        Ok(Self {
++            tlv: Some(tlv),
++            value: tlv.parse()?,
++        })
++    }
++
++    fn can_parse(t: asn1::Tag) -> bool {
++        T::can_parse(t)
++    }
++}
++
++impl<T: asn1::Asn1Writable> asn1::Asn1Writable for WithTlv<'_, T> {
++    type Error = T::Error;
++    fn write(&self, w: &mut asn1::Writer<'_>) -> Result<(), T::Error> {
++        self.value.write(w)
++    }
++
++    fn encoded_length(&self) -> Option<usize> {
++        self.value.encoded_length()
++    }
++}
++
++impl<T: PartialEq> PartialEq for WithTlv<'_, T> {
++    fn eq(&self, other: &Self) -> bool {
++        self.value == other.value
++    }
++}
++impl<T: Eq> Eq for WithTlv<'_, T> {}
++impl<T: std::hash::Hash> std::hash::Hash for WithTlv<'_, T> {
++    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
++        self.value.hash(state)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use asn1::Asn1Readable;
++
++    use super::{Asn1ReadableOrWritable, RawTlv, UnvalidatedVisibleString, WithTlv};
++
++    #[test]
++    #[should_panic]
++    fn test_unvalidated_visible_string_write() {
++        let v = UnvalidatedVisibleString("foo");
++        asn1::write_single(&v).unwrap();
++    }
++
++    #[test]
++    #[should_panic]
++    fn test_asn1_readable_or_writable_unwrap_read() {
++        Asn1ReadableOrWritable::<u32, u32>::new_write(17).unwrap_read();
++    }
++
++    #[test]
++    fn test_asn1_readable_or_writable_write_read_data() {
++        let v = Asn1ReadableOrWritable::<u32, u32>::new_read(17);
++        assert_eq!(&asn1::write_single(&v).unwrap(), b"\x02\x01\x11");
++    }
++
++    #[test]
++    fn test_raw_tlv_can_parse() {
++        let t = asn1::Tag::from_bytes(&[0]).unwrap().0;
++        assert!(RawTlv::can_parse(t));
++    }
++
++    #[test]
++    fn test_with_raw_tlv_can_parse() {
++        let t = asn1::Tag::from_bytes(&[0x30]).unwrap().0;
++
++        assert!(WithTlv::<asn1::Sequence<'_>>::can_parse(t));
++        assert!(!WithTlv::<bool>::can_parse(t));
++    }
++}
+diff --git a/rust/cryptography-x509/src/crl.rs b/rust/cryptography-x509/src/crl.rs
+new file mode 100644
+index 0000000..77b303a
+--- /dev/null
++++ b/rust/cryptography-x509/src/crl.rs
+@@ -0,0 +1,69 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use crate::certificate::SerialNumber;
++use crate::common::Asn1Operation;
++use crate::{common, extensions, name};
++
++pub type ReasonFlags<'a, Op> = Option<<Op as Asn1Operation>::OwnedBitString<'a>>;
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash)]
++pub struct CertificateRevocationList<'a> {
++    pub tbs_cert_list: TBSCertList<'a>,
++    pub signature_algorithm: common::AlgorithmIdentifier<'a>,
++    pub signature_value: asn1::BitString<'a>,
++}
++
++pub type RevokedCertificates<'a> = Option<
++    common::Asn1ReadableOrWritable<
++        asn1::SequenceOf<'a, RevokedCertificate<'a>>,
++        asn1::SequenceOfWriter<'a, RevokedCertificate<'a>, Vec<RevokedCertificate<'a>>>,
++    >,
++>;
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash)]
++pub struct TBSCertList<'a> {
++    pub version: Option<u8>,
++    pub signature: common::AlgorithmIdentifier<'a>,
++    pub issuer: name::Name<'a>,
++    pub this_update: common::Time,
++    pub next_update: Option<common::Time>,
++    pub revoked_certificates: RevokedCertificates<'a>,
++    #[explicit(0)]
++    pub raw_crl_extensions: Option<extensions::RawExtensions<'a>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone)]
++pub struct RevokedCertificate<'a> {
++    pub user_certificate: SerialNumber<'a>,
++    pub revocation_date: common::Time,
++    pub raw_crl_entry_extensions: Option<extensions::RawExtensions<'a>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct IssuingDistributionPoint<'a, Op: Asn1Operation> {
++    #[explicit(0)]
++    pub distribution_point: Option<extensions::DistributionPointName<'a, Op>>,
++
++    #[implicit(1)]
++    #[default(false)]
++    pub only_contains_user_certs: bool,
++
++    #[implicit(2)]
++    #[default(false)]
++    pub only_contains_ca_certs: bool,
++
++    #[implicit(3)]
++    pub only_some_reasons: ReasonFlags<'a, Op>,
++
++    #[implicit(4)]
++    #[default(false)]
++    pub indirect_crl: bool,
++
++    #[implicit(5)]
++    #[default(false)]
++    pub only_contains_attribute_certs: bool,
++}
++
++pub type CRLReason = asn1::Enumerated;
+diff --git a/rust/cryptography-x509/src/csr.rs b/rust/cryptography-x509/src/csr.rs
+new file mode 100644
+index 0000000..2bc6c42
+--- /dev/null
++++ b/rust/cryptography-x509/src/csr.rs
+@@ -0,0 +1,65 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use crate::{common, extensions, name, oid};
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct Csr<'a> {
++    pub csr_info: CertificationRequestInfo<'a>,
++    pub signature_alg: common::AlgorithmIdentifier<'a>,
++    pub signature: asn1::BitString<'a>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct CertificationRequestInfo<'a> {
++    pub version: u8,
++    pub subject: name::Name<'a>,
++    pub spki: common::WithTlv<'a, common::SubjectPublicKeyInfo<'a>>,
++    #[implicit(0, required)]
++    pub attributes: Attributes<'a>,
++}
++
++impl CertificationRequestInfo<'_> {
++    pub fn get_extension_attribute(
++        &self,
++    ) -> Result<Option<extensions::RawExtensions<'_>>, asn1::ParseError> {
++        for attribute in self.attributes.unwrap_read().clone() {
++            if attribute.type_id == oid::EXTENSION_REQUEST_OID
++                || attribute.type_id == oid::MS_EXTENSION_REQUEST
++            {
++                check_attribute_length(attribute.values.unwrap_read().clone())?;
++                let val = attribute.values.unwrap_read().clone().next().unwrap();
++                let exts = asn1::parse_single(val.full_data())?;
++                return Ok(Some(exts));
++            }
++        }
++        Ok(None)
++    }
++}
++
++pub fn check_attribute_length<'a>(
++    values: asn1::SetOf<'a, asn1::Tlv<'a>>,
++) -> Result<(), asn1::ParseError> {
++    if values.count() != 1 {
++        // TODO: We should raise a more specific error here
++        // Only single-valued attributes are supported
++        Err(asn1::ParseError::new(asn1::ParseErrorKind::InvalidValue))
++    } else {
++        Ok(())
++    }
++}
++
++pub type Attributes<'a> = common::Asn1ReadableOrWritable<
++    asn1::SetOf<'a, Attribute<'a>>,
++    asn1::SetOfWriter<'a, Attribute<'a>, Vec<Attribute<'a>>>,
++>;
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct Attribute<'a> {
++    pub type_id: asn1::ObjectIdentifier,
++    pub values: common::Asn1ReadableOrWritable<
++        asn1::SetOf<'a, asn1::Tlv<'a>>,
++        asn1::SetOfWriter<'a, common::RawTlv<'a>, [common::RawTlv<'a>; 1]>,
++    >,
++}
+diff --git a/rust/cryptography-x509/src/ec_constants.rs b/rust/cryptography-x509/src/ec_constants.rs
+new file mode 100644
+index 0000000..d3b86fe
+--- /dev/null
++++ b/rust/cryptography-x509/src/ec_constants.rs
+@@ -0,0 +1,125 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use crate::common::{Curve, FieldID, FieldParameters, SpecifiedECDomain};
++
++const P256_FIELD: FieldID<'static> = FieldID {
++    field_type: asn1::DefinedByMarker::marker(),
++    parameters: FieldParameters::PrimeField(asn1::BigUint::new(b"\x00\xff\xff\xff\xff\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff").unwrap()),
++};
++const P256_CURVE_A: &[u8; 32] = b"\xff\xff\xff\xff\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfc";
++const P256_CURVE_B: &[u8; 32] = b"\x5a\xc6\x35\xd8\xaa\x3a\x93\xe7\xb3\xeb\xbd\x55\x76\x98\x86\xbc\x65\x1d\x06\xb0\xcc\x53\xb0\xf6\x3b\xce\x3c\x3e\x27\xd2\x60\x4b";
++const P256_SEED: asn1::BitString<'static> = asn1::BitString::new(
++    b"\xc4\x9d\x36\x08\x86\xe7\x04\x93\x6a\x66\x78\xe1\x13\x9d\x26\xb7\x81\x9f\x7e\x90",
++    0,
++)
++.unwrap();
++const P256_UNCOMPRESSED_BASE: &[u8; 65] = b"\x04\x6b\x17\xd1\xf2\xe1\x2c\x42\x47\xf8\xbc\xe6\xe5\x63\xa4\x40\xf2\x77\x03\x7d\x81\x2d\xeb\x33\xa0\xf4\xa1\x39\x45\xd8\x98\xc2\x96\x4f\xe3\x42\xe2\xfe\x1a\x7f\x9b\x8e\xe7\xeb\x4a\x7c\x0f\x9e\x16\x2b\xce\x33\x57\x6b\x31\x5e\xce\xcb\xb6\x40\x68\x37\xbf\x51\xf5";
++const P256_ORDER: asn1::BigUint<'static> = asn1::BigUint::new(b"\x00\xff\xff\xff\xff\x00\x00\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff\xbc\xe6\xfa\xad\xa7\x17\x9e\x84\xf3\xb9\xca\xc2\xfc\x63\x25\x51").unwrap();
++
++pub const P256_DOMAIN: SpecifiedECDomain<'static> = SpecifiedECDomain {
++    version: 1,
++    field_id: P256_FIELD,
++    curve: Curve {
++        a: P256_CURVE_A,
++        b: P256_CURVE_B,
++        seed: Some(P256_SEED),
++    },
++    base: P256_UNCOMPRESSED_BASE,
++    order: P256_ORDER,
++    cofactor: Some(1),
++};
++
++pub const P256_DOMAIN_NO_SEED: SpecifiedECDomain<'static> = SpecifiedECDomain {
++    version: 1,
++    field_id: P256_FIELD,
++    curve: Curve {
++        a: P256_CURVE_A,
++        b: P256_CURVE_B,
++        seed: None,
++    },
++    base: P256_UNCOMPRESSED_BASE,
++    order: P256_ORDER,
++    cofactor: Some(1),
++};
++
++const P384_FIELD: FieldID<'static> = FieldID {
++    field_type: asn1::DefinedByMarker::marker(),
++    parameters: FieldParameters::PrimeField(asn1::BigUint::new(b"\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff").unwrap()),
++};
++const P384_CURVE_A: &[u8; 48] = b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xfc";
++const P384_CURVE_B: &[u8; 48] = b"\xb3\x31\x2f\xa7\xe2\x3e\xe7\xe4\x98\x8e\x05\x6b\xe3\xf8\x2d\x19\x18\x1d\x9c\x6e\xfe\x81\x41\x12\x03\x14\x08\x8f\x50\x13\x87\x5a\xc6\x56\x39\x8d\x8a\x2e\xd1\x9d\x2a\x85\xc8\xed\xd3\xec\x2a\xef";
++const P384_SEED: asn1::BitString<'static> = asn1::BitString::new(
++    b"\xa3\x35\x92\x6a\xa3\x19\xa2\x7a\x1d\x00\x89\x6a\x67\x73\xa4\x82\x7a\xcd\xac\x73",
++    0,
++)
++.unwrap();
++const P384_UNCOMPRESSED_BASE: &[u8; 97] = b"\x04\xaa\x87\xca\x22\xbe\x8b\x05\x37\x8e\xb1\xc7\x1e\xf3\x20\xad\x74\x6e\x1d\x3b\x62\x8b\xa7\x9b\x98\x59\xf7\x41\xe0\x82\x54\x2a\x38\x55\x02\xf2\x5d\xbf\x55\x29\x6c\x3a\x54\x5e\x38\x72\x76\x0a\xb7\x36\x17\xde\x4a\x96\x26\x2c\x6f\x5d\x9e\x98\xbf\x92\x92\xdc\x29\xf8\xf4\x1d\xbd\x28\x9a\x14\x7c\xe9\xda\x31\x13\xb5\xf0\xb8\xc0\x0a\x60\xb1\xce\x1d\x7e\x81\x9d\x7a\x43\x1d\x7c\x90\xea\x0e\x5f";
++const P384_ORDER: asn1::BigUint<'static> = asn1::BigUint::new(b"\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xc7\x63\x4d\x81\xf4\x37\x2d\xdf\x58\x1a\x0d\xb2\x48\xb0\xa7\x7a\xec\xec\x19\x6a\xcc\xc5\x29\x73").unwrap();
++
++pub const P384_DOMAIN: SpecifiedECDomain<'static> = SpecifiedECDomain {
++    version: 1,
++    field_id: P384_FIELD,
++    curve: Curve {
++        a: P384_CURVE_A,
++        b: P384_CURVE_B,
++        seed: Some(P384_SEED),
++    },
++    base: P384_UNCOMPRESSED_BASE,
++    order: P384_ORDER,
++    cofactor: Some(1),
++};
++
++pub const P384_DOMAIN_NO_SEED: SpecifiedECDomain<'static> = SpecifiedECDomain {
++    version: 1,
++    field_id: P384_FIELD,
++    curve: Curve {
++        a: P384_CURVE_A,
++        b: P384_CURVE_B,
++        seed: None,
++    },
++    base: P384_UNCOMPRESSED_BASE,
++    order: P384_ORDER,
++    cofactor: Some(1),
++};
++
++const P521_FIELD: FieldID<'static> = FieldID {
++    field_type: asn1::DefinedByMarker::marker(),
++    parameters: FieldParameters::PrimeField(asn1::BigUint::new(b"\x01\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff").unwrap()),
++};
++const P521_CURVE_A: &[u8; 66] = b"\x01\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfc";
++const P521_CURVE_B: &[u8; 66] = b"\x00\x51\x95\x3e\xb9\x61\x8e\x1c\x9a\x1f\x92\x9a\x21\xa0\xb6\x85\x40\xee\xa2\xda\x72\x5b\x99\xb3\x15\xf3\xb8\xb4\x89\x91\x8e\xf1\x09\xe1\x56\x19\x39\x51\xec\x7e\x93\x7b\x16\x52\xc0\xbd\x3b\xb1\xbf\x07\x35\x73\xdf\x88\x3d\x2c\x34\xf1\xef\x45\x1f\xd4\x6b\x50\x3f\x00";
++const P521_SEED: asn1::BitString<'static> = asn1::BitString::new(
++    b"\xd0\x9e\x88\x00\x29\x1c\xb8\x53\x96\xcc\x67\x17\x39\x32\x84\xaa\xa0\xda\x64\xba",
++    0,
++)
++.unwrap();
++const P521_UNCOMPRESSED_BASE: &[u8; 133] = b"\x04\x00\xc6\x85\x8e\x06\xb7\x04\x04\xe9\xcd\x9e\x3e\xcb\x66\x23\x95\xb4\x42\x9c\x64\x81\x39\x05\x3f\xb5\x21\xf8\x28\xaf\x60\x6b\x4d\x3d\xba\xa1\x4b\x5e\x77\xef\xe7\x59\x28\xfe\x1d\xc1\x27\xa2\xff\xa8\xde\x33\x48\xb3\xc1\x85\x6a\x42\x9b\xf9\x7e\x7e\x31\xc2\xe5\xbd\x66\x01\x18\x39\x29\x6a\x78\x9a\x3b\xc0\x04\x5c\x8a\x5f\xb4\x2c\x7d\x1b\xd9\x98\xf5\x44\x49\x57\x9b\x44\x68\x17\xaf\xbd\x17\x27\x3e\x66\x2c\x97\xee\x72\x99\x5e\xf4\x26\x40\xc5\x50\xb9\x01\x3f\xad\x07\x61\x35\x3c\x70\x86\xa2\x72\xc2\x40\x88\xbe\x94\x76\x9f\xd1\x66\x50";
++const P521_ORDER: asn1::BigUint<'static> = asn1::BigUint::new(b"\x01\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfa\x51\x86\x87\x83\xbf\x2f\x96\x6b\x7f\xcc\x01\x48\xf7\x09\xa5\xd0\x3b\xb5\xc9\xb8\x89\x9c\x47\xae\xbb\x6f\xb7\x1e\x91\x38\x64\x09").unwrap();
++
++pub const P521_DOMAIN: SpecifiedECDomain<'static> = SpecifiedECDomain {
++    version: 1,
++    field_id: P521_FIELD,
++    curve: Curve {
++        a: P521_CURVE_A,
++        b: P521_CURVE_B,
++        seed: Some(P521_SEED),
++    },
++    base: P521_UNCOMPRESSED_BASE,
++    order: P521_ORDER,
++    cofactor: Some(1),
++};
++
++pub const P521_DOMAIN_NO_SEED: SpecifiedECDomain<'static> = SpecifiedECDomain {
++    version: 1,
++    field_id: P521_FIELD,
++    curve: Curve {
++        a: P521_CURVE_A,
++        b: P521_CURVE_B,
++        seed: None,
++    },
++    base: P521_UNCOMPRESSED_BASE,
++    order: P521_ORDER,
++    cofactor: Some(1),
++};
+diff --git a/rust/cryptography-x509/src/extensions.rs b/rust/cryptography-x509/src/extensions.rs
+new file mode 100644
+index 0000000..8a9df2a
+--- /dev/null
++++ b/rust/cryptography-x509/src/extensions.rs
+@@ -0,0 +1,400 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use std::collections::HashSet;
++
++use crate::certificate::SerialNumber;
++use crate::common::Asn1Operation;
++use crate::{common, crl, name};
++
++pub struct DuplicateExtensionsError(pub asn1::ObjectIdentifier);
++
++pub type RawExtensions<'a> = common::Asn1ReadableOrWritable<
++    asn1::SequenceOf<'a, Extension<'a>>,
++    asn1::SequenceOfWriter<'a, Extension<'a>, Vec<Extension<'a>>>,
++>;
++
++/// An invariant-enforcing wrapper for `RawExtensions`.
++///
++/// In particular, an `Extensions` cannot be constructed from a `RawExtensions`
++/// that contains duplicated extensions (by OID).
++pub struct Extensions<'a>(Option<RawExtensions<'a>>);
++
++impl<'a> Extensions<'a> {
++    /// Create an `Extensions` from the given `RawExtensions`.
++    ///
++    /// Returns an `Err` variant containing the first duplicated extension's
++    /// OID, if there are any duplicates.
++    pub fn from_raw_extensions(
++        raw: Option<&RawExtensions<'a>>,
++    ) -> Result<Self, DuplicateExtensionsError> {
++        match raw {
++            Some(raw_exts) => {
++                let mut seen_oids = HashSet::new();
++
++                for ext in raw_exts.unwrap_read().clone() {
++                    if !seen_oids.insert(ext.extn_id.clone()) {
++                        return Err(DuplicateExtensionsError(ext.extn_id));
++                    }
++                }
++
++                Ok(Self(Some(raw_exts.clone())))
++            }
++            None => Ok(Self(None)),
++        }
++    }
++
++    /// Retrieves the extension identified by the given OID,
++    /// or None if the extension is not present (or no extensions are present).
++    pub fn get_extension(&self, oid: &asn1::ObjectIdentifier) -> Option<Extension<'a>> {
++        self.iter().find(|ext| &ext.extn_id == oid)
++    }
++
++    /// Returns a reference to the underlying extensions.
++    pub fn as_raw(&self) -> Option<&RawExtensions<'a>> {
++        self.0.as_ref()
++    }
++
++    /// Returns an iterator over the underlying extensions.
++    pub fn iter(&self) -> impl Iterator<Item = Extension<'a>> {
++        self.as_raw()
++            .map(|raw| raw.unwrap_read().clone())
++            .into_iter()
++            .flatten()
++    }
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash, Clone)]
++pub struct Extension<'a> {
++    pub extn_id: asn1::ObjectIdentifier,
++    #[default(false)]
++    pub critical: bool,
++    pub extn_value: &'a [u8],
++}
++
++impl<'a> Extension<'a> {
++    pub fn value<T: asn1::Asn1Readable<'a>>(&self) -> asn1::ParseResult<T> {
++        asn1::parse_single(self.extn_value)
++    }
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct PolicyConstraints {
++    #[implicit(0)]
++    pub require_explicit_policy: Option<u64>,
++    #[implicit(1)]
++    pub inhibit_policy_mapping: Option<u64>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct AccessDescription<'a> {
++    pub access_method: asn1::ObjectIdentifier,
++    pub access_location: name::GeneralName<'a>,
++}
++
++pub type SequenceOfAccessDescriptions<'a, Op> =
++    <Op as Asn1Operation>::SequenceOfVec<'a, AccessDescription<'a>>;
++
++// Needed due to clippy type complexity warning.
++type SequenceOfPolicyQualifiers<'a, Op> =
++    <Op as Asn1Operation>::SequenceOfVec<'a, PolicyQualifierInfo<'a, Op>>;
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct PolicyInformation<'a, Op: Asn1Operation + 'a> {
++    pub policy_identifier: asn1::ObjectIdentifier,
++    pub policy_qualifiers: Option<SequenceOfPolicyQualifiers<'a, Op>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct PolicyQualifierInfo<'a, Op: Asn1Operation> {
++    pub policy_qualifier_id: asn1::ObjectIdentifier,
++    pub qualifier: Qualifier<'a, Op>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub enum Qualifier<'a, Op: Asn1Operation> {
++    CpsUri(asn1::IA5String<'a>),
++    UserNotice(UserNotice<'a, Op>),
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct UserNotice<'a, Op: Asn1Operation> {
++    pub notice_ref: Option<NoticeReference<'a, Op>>,
++    pub explicit_text: Option<DisplayText<'a>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct NoticeReference<'a, Op: Asn1Operation> {
++    pub organization: DisplayText<'a>,
++    pub notice_numbers: Op::SequenceOfVec<'a, asn1::BigUint<'a>>,
++}
++
++// DisplayText also allows BMPString, which we currently do not support.
++#[allow(clippy::enum_variant_names)]
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub enum DisplayText<'a> {
++    IA5String(asn1::IA5String<'a>),
++    Utf8String(asn1::Utf8String<'a>),
++    // Not validated due to certificates with UTF-8 in VisibleString. See PR #8884
++    VisibleString(common::UnvalidatedVisibleString<'a>),
++    BmpString(asn1::BMPString<'a>),
++}
++
++pub type SequenceOfSubtrees<'a, Op> = <Op as Asn1Operation>::SequenceOfVec<'a, GeneralSubtree<'a>>;
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct NameConstraints<'a, Op: Asn1Operation> {
++    #[implicit(0)]
++    pub permitted_subtrees: Option<SequenceOfSubtrees<'a, Op>>,
++
++    #[implicit(1)]
++    pub excluded_subtrees: Option<SequenceOfSubtrees<'a, Op>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct GeneralSubtree<'a> {
++    pub base: name::GeneralName<'a>,
++
++    #[implicit(0)]
++    #[default(0u64)]
++    pub minimum: u64,
++
++    #[implicit(1)]
++    pub maximum: Option<u64>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct MSCertificateTemplate {
++    pub template_id: asn1::ObjectIdentifier,
++    pub major_version: Option<u32>,
++    pub minor_version: Option<u32>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct DistributionPoint<'a, Op: Asn1Operation> {
++    #[explicit(0)]
++    pub distribution_point: Option<DistributionPointName<'a, Op>>,
++
++    #[implicit(1)]
++    pub reasons: crl::ReasonFlags<'a, Op>,
++
++    #[implicit(2)]
++    pub crl_issuer: Option<name::SequenceOfGeneralName<'a, Op>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub enum DistributionPointName<'a, Op: Asn1Operation> {
++    #[implicit(0)]
++    FullName(name::SequenceOfGeneralName<'a, Op>),
++
++    #[implicit(1)]
++    NameRelativeToCRLIssuer(Op::SetOfVec<'a, common::AttributeTypeValue<'a>>),
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct AuthorityKeyIdentifier<'a, Op: Asn1Operation> {
++    #[implicit(0)]
++    pub key_identifier: Option<&'a [u8]>,
++    #[implicit(1)]
++    pub authority_cert_issuer: Option<name::SequenceOfGeneralName<'a, Op>>,
++    #[implicit(2)]
++    pub authority_cert_serial_number: Option<SerialNumber<'a>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct BasicConstraints {
++    #[default(false)]
++    pub ca: bool,
++    pub path_length: Option<u64>,
++}
++
++pub type SubjectAlternativeName<'a> = asn1::SequenceOf<'a, name::GeneralName<'a>>;
++pub type IssuerAlternativeName<'a> = asn1::SequenceOf<'a, name::GeneralName<'a>>;
++pub type ExtendedKeyUsage<'a> = asn1::SequenceOf<'a, asn1::ObjectIdentifier, 1>;
++
++pub struct KeyUsage<'a>(asn1::BitString<'a>);
++
++impl<'a> asn1::SimpleAsn1Readable<'a> for KeyUsage<'a> {
++    const TAG: asn1::Tag = asn1::BitString::TAG;
++
++    fn parse_data(data: &'a [u8]) -> asn1::ParseResult<Self> {
++        asn1::BitString::parse_data(data).map(Self)
++    }
++}
++
++impl KeyUsage<'_> {
++    pub fn is_zeroed(&self) -> bool {
++        self.0.as_bytes().iter().all(|&b| b == 0)
++    }
++
++    pub fn digital_signature(&self) -> bool {
++        self.0.has_bit_set(0)
++    }
++
++    pub fn content_commitment(&self) -> bool {
++        self.0.has_bit_set(1)
++    }
++
++    pub fn key_encipherment(&self) -> bool {
++        self.0.has_bit_set(2)
++    }
++
++    pub fn data_encipherment(&self) -> bool {
++        self.0.has_bit_set(3)
++    }
++
++    pub fn key_agreement(&self) -> bool {
++        self.0.has_bit_set(4)
++    }
++
++    pub fn key_cert_sign(&self) -> bool {
++        self.0.has_bit_set(5)
++    }
++
++    pub fn crl_sign(&self) -> bool {
++        self.0.has_bit_set(6)
++    }
++
++    pub fn encipher_only(&self) -> bool {
++        self.0.has_bit_set(7)
++    }
++
++    pub fn decipher_only(&self) -> bool {
++        self.0.has_bit_set(8)
++    }
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct NamingAuthority<'a> {
++    pub id: Option<asn1::ObjectIdentifier>,
++    pub url: Option<asn1::IA5String<'a>>,
++    pub text: Option<DisplayText<'a>>,
++}
++
++type SequenceOfDisplayTexts<'a, Op> = <Op as Asn1Operation>::SequenceOfVec<'a, DisplayText<'a>>;
++
++type SequenceOfObjectIdentifiers<'a, Op> =
++    <Op as Asn1Operation>::SequenceOfVec<'a, asn1::ObjectIdentifier>;
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct ProfessionInfo<'a, Op: Asn1Operation> {
++    #[explicit(0)]
++    pub naming_authority: Option<NamingAuthority<'a>>,
++    pub profession_items: SequenceOfDisplayTexts<'a, Op>,
++    pub profession_oids: Option<SequenceOfObjectIdentifiers<'a, Op>>,
++    pub registration_number: Option<asn1::PrintableString<'a>>,
++    pub add_profession_info: Option<&'a [u8]>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct Admission<'a, Op: Asn1Operation + 'a> {
++    #[explicit(0)]
++    pub admission_authority: Option<name::GeneralName<'a>>,
++    #[explicit(1)]
++    pub naming_authority: Option<NamingAuthority<'a>>,
++    pub profession_infos: Op::SequenceOfVec<'a, ProfessionInfo<'a, Op>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct Admissions<'a, Op: Asn1Operation> {
++    pub admission_authority: Option<name::GeneralName<'a>>,
++    pub contents_of_admissions: Op::SequenceOfVec<'a, Admission<'a, Op>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct PrivateKeyUsagePeriod {
++    #[implicit(0)]
++    pub not_before: Option<asn1::X509GeneralizedTime>,
++    #[implicit(1)]
++    pub not_after: Option<asn1::X509GeneralizedTime>,
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{BasicConstraints, Extension, Extensions, KeyUsage};
++    use crate::oid::{AUTHORITY_KEY_IDENTIFIER_OID, BASIC_CONSTRAINTS_OID};
++
++    #[test]
++    fn test_get_extension() {
++        let bc = BasicConstraints {
++            ca: true,
++            path_length: Some(3),
++        };
++        let extension = Extension {
++            extn_id: BASIC_CONSTRAINTS_OID,
++            critical: true,
++            extn_value: &asn1::write_single(&bc).unwrap(),
++        };
++        let extensions = asn1::SequenceOfWriter::new(vec![extension]);
++
++        let der = asn1::write_single(&extensions).unwrap();
++        let raw = asn1::parse_single(&der).unwrap();
++
++        let extensions = Extensions::from_raw_extensions(Some(&raw)).ok().unwrap();
++
++        assert!(&extensions.get_extension(&BASIC_CONSTRAINTS_OID).is_some());
++        assert!(&extensions
++            .get_extension(&AUTHORITY_KEY_IDENTIFIER_OID)
++            .is_none());
++    }
++
++    #[test]
++    fn test_extensions_iter() {
++        let bc = BasicConstraints {
++            ca: true,
++            path_length: Some(3),
++        };
++        let extension = Extension {
++            extn_id: BASIC_CONSTRAINTS_OID,
++            critical: true,
++            extn_value: &asn1::write_single(&bc).unwrap(),
++        };
++        let extensions = asn1::SequenceOfWriter::new(vec![extension]);
++
++        let der = asn1::write_single(&extensions).unwrap();
++        let parsed = asn1::parse_single(&der).unwrap();
++
++        let extensions = Extensions::from_raw_extensions(Some(&parsed)).ok().unwrap();
++
++        let extension_list: Vec<_> = extensions.iter().collect();
++        assert_eq!(extension_list.len(), 1);
++    }
++
++    #[test]
++    fn test_extension_value() {
++        let bc = BasicConstraints {
++            ca: true,
++            path_length: Some(3),
++        };
++        let extension = Extension {
++            extn_id: BASIC_CONSTRAINTS_OID,
++            critical: true,
++            extn_value: &asn1::write_single(&bc).unwrap(),
++        };
++
++        let extracted: BasicConstraints = extension.value().unwrap();
++        assert_eq!(bc.ca, extracted.ca);
++        assert_eq!(bc.path_length, extracted.path_length);
++    }
++
++    #[test]
++    fn test_keyusage() {
++        // let ku: KeyUsage = asn1::parse_single(data)
++        let ku_bits = [0b1111_1111u8, 0b1000_0000u8];
++        let ku_bitstring = asn1::BitString::new(&ku_bits, 7).unwrap();
++        let asn1 = asn1::write_single(&ku_bitstring).unwrap();
++
++        let ku: KeyUsage<'_> = asn1::parse_single(&asn1).unwrap();
++        assert!(!ku.is_zeroed());
++        assert!(ku.digital_signature());
++        assert!(ku.content_commitment());
++        assert!(ku.key_encipherment());
++        assert!(ku.data_encipherment());
++        assert!(ku.key_agreement());
++        assert!(ku.key_cert_sign());
++        assert!(ku.crl_sign());
++        assert!(ku.encipher_only());
++        assert!(ku.decipher_only());
++    }
++}
+diff --git a/rust/cryptography-x509/src/lib.rs b/rust/cryptography-x509/src/lib.rs
+new file mode 100644
+index 0000000..5f633f7
+--- /dev/null
++++ b/rust/cryptography-x509/src/lib.rs
+@@ -0,0 +1,21 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++#![forbid(unsafe_code)]
++#![deny(rust_2018_idioms, clippy::undocumented_unsafe_blocks)]
++#![allow(unknown_lints, clippy::result_large_err)]
++
++pub mod certificate;
++pub mod common;
++pub mod crl;
++pub mod csr;
++pub mod ec_constants;
++pub mod extensions;
++pub mod name;
++pub mod ocsp_req;
++pub mod ocsp_resp;
++pub mod oid;
++pub mod pkcs12;
++pub mod pkcs7;
++pub mod pkcs8;
+diff --git a/rust/cryptography-x509/src/name.rs b/rust/cryptography-x509/src/name.rs
+new file mode 100644
+index 0000000..498253e
+--- /dev/null
++++ b/rust/cryptography-x509/src/name.rs
+@@ -0,0 +1,90 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use crate::common::{self, Asn1Operation};
++
++pub type NameReadable<'a> = asn1::SequenceOf<'a, asn1::SetOf<'a, common::AttributeTypeValue<'a>>>;
++
++pub type Name<'a> = common::Asn1ReadableOrWritable<
++    NameReadable<'a>,
++    asn1::SequenceOfWriter<
++        'a,
++        asn1::SetOfWriter<'a, common::AttributeTypeValue<'a>, Vec<common::AttributeTypeValue<'a>>>,
++        Vec<
++            asn1::SetOfWriter<
++                'a,
++                common::AttributeTypeValue<'a>,
++                Vec<common::AttributeTypeValue<'a>>,
++            >,
++        >,
++    >,
++>;
++
++/// An IA5String ASN.1 element whose contents is not validated as meeting the
++/// requirements (ASCII characters only), and instead is only known to be
++/// valid UTF-8.
++pub struct UnvalidatedIA5String<'a>(pub &'a str);
++
++impl<'a> asn1::SimpleAsn1Readable<'a> for UnvalidatedIA5String<'a> {
++    const TAG: asn1::Tag = asn1::IA5String::TAG;
++    fn parse_data(data: &'a [u8]) -> asn1::ParseResult<Self> {
++        Ok(UnvalidatedIA5String(std::str::from_utf8(data).map_err(
++            |_| asn1::ParseError::new(asn1::ParseErrorKind::InvalidValue),
++        )?))
++    }
++}
++
++impl asn1::SimpleAsn1Writable for UnvalidatedIA5String<'_> {
++    type Error = asn1::WriteError;
++    const TAG: asn1::Tag = asn1::IA5String::TAG;
++    fn write_data(&self, dest: &mut asn1::WriteBuf) -> asn1::WriteResult {
++        dest.push_slice(self.0.as_bytes())
++    }
++    fn data_length(&self) -> Option<usize> {
++        Some(self.0.len())
++    }
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write, PartialEq, Eq, Hash)]
++pub struct OtherName<'a> {
++    pub type_id: asn1::ObjectIdentifier,
++    #[explicit(0, required)]
++    pub value: asn1::Tlv<'a>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub enum GeneralName<'a> {
++    #[implicit(0)]
++    OtherName(OtherName<'a>),
++
++    #[implicit(1)]
++    RFC822Name(UnvalidatedIA5String<'a>),
++
++    #[implicit(2)]
++    DNSName(UnvalidatedIA5String<'a>),
++
++    #[implicit(3)]
++    // unsupported
++    X400Address(asn1::Sequence<'a>),
++
++    // Name is explicit per RFC 5280 Appendix A.1.
++    #[explicit(4)]
++    DirectoryName(Name<'a>),
++
++    #[implicit(5)]
++    // unsupported
++    EDIPartyName(asn1::Sequence<'a>),
++
++    #[implicit(6)]
++    UniformResourceIdentifier(UnvalidatedIA5String<'a>),
++
++    #[implicit(7)]
++    IPAddress(&'a [u8]),
++
++    #[implicit(8)]
++    RegisteredID(asn1::ObjectIdentifier),
++}
++
++pub(crate) type SequenceOfGeneralName<'a, Op> =
++    <Op as Asn1Operation>::SequenceOfVec<'a, GeneralName<'a>>;
+diff --git a/rust/cryptography-x509/src/ocsp_req.rs b/rust/cryptography-x509/src/ocsp_req.rs
+new file mode 100644
+index 0000000..163c40f
+--- /dev/null
++++ b/rust/cryptography-x509/src/ocsp_req.rs
+@@ -0,0 +1,45 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use crate::{common, extensions, name};
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct TBSRequest<'a> {
++    #[explicit(0)]
++    #[default(0)]
++    pub version: u8,
++    #[explicit(1)]
++    pub requestor_name: Option<name::GeneralName<'a>>,
++    pub request_list: common::Asn1ReadableOrWritable<
++        asn1::SequenceOf<'a, Request<'a>>,
++        asn1::SequenceOfWriter<'a, Request<'a>>,
++    >,
++    #[explicit(2)]
++    pub raw_request_extensions: Option<extensions::RawExtensions<'a>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct Request<'a> {
++    pub req_cert: CertID<'a>,
++    #[explicit(0)]
++    pub single_request_extensions: Option<extensions::RawExtensions<'a>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct CertID<'a> {
++    pub hash_algorithm: common::AlgorithmIdentifier<'a>,
++    pub issuer_name_hash: &'a [u8],
++    pub issuer_key_hash: &'a [u8],
++    pub serial_number: asn1::BigInt<'a>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct OCSPRequest<'a> {
++    pub tbs_request: TBSRequest<'a>,
++    // Parsing out the full structure, which includes the entirety of a
++    // certificate is more trouble than it's worth, since it's not in the
++    // Python API.
++    #[explicit(0)]
++    pub optional_signature: Option<asn1::Sequence<'a>>,
++}
+diff --git a/rust/cryptography-x509/src/ocsp_resp.rs b/rust/cryptography-x509/src/ocsp_resp.rs
+new file mode 100644
+index 0000000..495dee5
+--- /dev/null
++++ b/rust/cryptography-x509/src/ocsp_resp.rs
+@@ -0,0 +1,93 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use crate::oid::OCSP_BASIC_OID;
++use crate::{certificate, common, crl, extensions, name, ocsp_req};
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct OCSPResponse<'a> {
++    pub response_status: asn1::Enumerated,
++    #[explicit(0)]
++    pub response_bytes: Option<ResponseBytes<'a>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct ResponseBytes<'a> {
++    pub response_type: asn1::DefinedByMarker<asn1::ObjectIdentifier>,
++    #[defined_by(response_type)]
++    pub response: Response<'a>,
++}
++
++#[derive(asn1::Asn1DefinedByRead, asn1::Asn1DefinedByWrite)]
++pub enum Response<'a> {
++    #[defined_by(OCSP_BASIC_OID)]
++    Basic(asn1::OctetStringEncoded<BasicOCSPResponse<'a>>),
++}
++
++pub type OCSPCerts<'a> = Option<
++    common::Asn1ReadableOrWritable<
++        asn1::SequenceOf<'a, certificate::Certificate<'a>>,
++        asn1::SequenceOfWriter<'a, certificate::Certificate<'a>, Vec<certificate::Certificate<'a>>>,
++    >,
++>;
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct BasicOCSPResponse<'a> {
++    pub tbs_response_data: ResponseData<'a>,
++    pub signature_algorithm: common::AlgorithmIdentifier<'a>,
++    pub signature: asn1::BitString<'a>,
++    #[explicit(0)]
++    pub certs: OCSPCerts<'a>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct ResponseData<'a> {
++    #[explicit(0)]
++    #[default(0)]
++    pub version: u8,
++    pub responder_id: ResponderId<'a>,
++    pub produced_at: asn1::X509GeneralizedTime,
++    pub responses: common::Asn1ReadableOrWritable<
++        asn1::SequenceOf<'a, SingleResponse<'a>>,
++        asn1::SequenceOfWriter<'a, SingleResponse<'a>, Vec<SingleResponse<'a>>>,
++    >,
++    #[explicit(1)]
++    pub raw_response_extensions: Option<extensions::RawExtensions<'a>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub enum ResponderId<'a> {
++    #[explicit(1)]
++    ByName(name::Name<'a>),
++    #[explicit(2)]
++    ByKey(&'a [u8]),
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct SingleResponse<'a> {
++    pub cert_id: ocsp_req::CertID<'a>,
++    pub cert_status: CertStatus,
++    pub this_update: asn1::X509GeneralizedTime,
++    #[explicit(0)]
++    pub next_update: Option<asn1::X509GeneralizedTime>,
++    #[explicit(1)]
++    pub raw_single_extensions: Option<extensions::RawExtensions<'a>>,
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub enum CertStatus {
++    #[implicit(0)]
++    Good(()),
++    #[implicit(1)]
++    Revoked(RevokedInfo),
++    #[implicit(2)]
++    Unknown(()),
++}
++
++#[derive(asn1::Asn1Read, asn1::Asn1Write)]
++pub struct RevokedInfo {
++    pub revocation_time: asn1::X509GeneralizedTime,
++    #[explicit(0)]
++    pub revocation_reason: Option<crl::CRLReason>,
++}
+diff --git a/rust/cryptography-x509/src/oid.rs b/rust/cryptography-x509/src/oid.rs
+new file mode 100644
+index 0000000..a383b90
+--- /dev/null
++++ b/rust/cryptography-x509/src/oid.rs
+@@ -0,0 +1,181 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++// X.509v3 extensions
++pub const EXTENSION_REQUEST_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 9, 14);
++pub const MS_EXTENSION_REQUEST: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 4, 1, 311, 2, 1, 14);
++pub const MS_CERTIFICATE_TEMPLATE: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 4, 1, 311, 21, 7);
++pub const PRECERT_SIGNED_CERTIFICATE_TIMESTAMPS_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 4, 1, 11129, 2, 4, 2);
++pub const PRECERT_POISON_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 4, 1, 11129, 2, 4, 3);
++pub const SIGNED_CERTIFICATE_TIMESTAMPS_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 4, 1, 11129, 2, 4, 5);
++pub const AUTHORITY_INFORMATION_ACCESS_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 5, 5, 7, 1, 1);
++pub const SUBJECT_INFORMATION_ACCESS_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 5, 5, 7, 1, 11);
++pub const TLS_FEATURE_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 1, 24);
++pub const CP_CPS_URI_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 2, 1);
++pub const OCSP_BASIC_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 48, 1, 1);
++pub const CP_USER_NOTICE_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 2, 2);
++pub const NONCE_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 48, 1, 2);
++pub const OCSP_NO_CHECK_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 48, 1, 5);
++pub const SUBJECT_DIRECTORY_ATTRIBUTES_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 9);
++pub const SUBJECT_KEY_IDENTIFIER_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 14);
++pub const KEY_USAGE_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 15);
++pub const SUBJECT_ALTERNATIVE_NAME_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 17);
++pub const ISSUER_ALTERNATIVE_NAME_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 18);
++pub const BASIC_CONSTRAINTS_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 19);
++pub const CRL_NUMBER_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 20);
++pub const CRL_REASON_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 21);
++pub const INVALIDITY_DATE_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 24);
++pub const DELTA_CRL_INDICATOR_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 27);
++pub const ISSUING_DISTRIBUTION_POINT_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 28);
++pub const CERTIFICATE_ISSUER_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 29);
++pub const NAME_CONSTRAINTS_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 30);
++pub const CRL_DISTRIBUTION_POINTS_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 31);
++pub const CERTIFICATE_POLICIES_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 32);
++pub const AUTHORITY_KEY_IDENTIFIER_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 35);
++pub const POLICY_CONSTRAINTS_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 36);
++pub const EXTENDED_KEY_USAGE_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 37);
++pub const FRESHEST_CRL_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 46);
++pub const INHIBIT_ANY_POLICY_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 54);
++pub const ACCEPTABLE_RESPONSES_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 5, 5, 7, 48, 1, 4);
++pub const ADMISSIONS_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 36, 8, 3, 3);
++pub const PRIVATE_KEY_USAGE_PERIOD_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 16);
++
++// Public key identifiers
++pub const EC_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10045, 2, 1);
++
++pub const EC_SECP192R1: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10045, 3, 1, 1);
++pub const EC_SECP224R1: asn1::ObjectIdentifier = asn1::oid!(1, 3, 132, 0, 33);
++pub const EC_SECP256R1: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10045, 3, 1, 7);
++pub const EC_SECP384R1: asn1::ObjectIdentifier = asn1::oid!(1, 3, 132, 0, 34);
++pub const EC_SECP521R1: asn1::ObjectIdentifier = asn1::oid!(1, 3, 132, 0, 35);
++
++pub const EC_SECP256K1: asn1::ObjectIdentifier = asn1::oid!(1, 3, 132, 0, 10);
++
++pub const EC_BRAINPOOLP256R1: asn1::ObjectIdentifier = asn1::oid!(1, 3, 36, 3, 3, 2, 8, 1, 1, 7);
++pub const EC_BRAINPOOLP384R1: asn1::ObjectIdentifier = asn1::oid!(1, 3, 36, 3, 3, 2, 8, 1, 1, 11);
++pub const EC_BRAINPOOLP512R1: asn1::ObjectIdentifier = asn1::oid!(1, 3, 36, 3, 3, 2, 8, 1, 1, 13);
++
++pub const RSA_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 1, 1);
++
++// Signing methods
++pub const ECDSA_WITH_SHA224_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10045, 4, 3, 1);
++pub const ECDSA_WITH_SHA256_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10045, 4, 3, 2);
++pub const ECDSA_WITH_SHA384_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10045, 4, 3, 3);
++pub const ECDSA_WITH_SHA512_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10045, 4, 3, 4);
++pub const ECDSA_WITH_SHA3_224_OID: asn1::ObjectIdentifier =
++    asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 9);
++pub const ECDSA_WITH_SHA3_256_OID: asn1::ObjectIdentifier =
++    asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 10);
++pub const ECDSA_WITH_SHA3_384_OID: asn1::ObjectIdentifier =
++    asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 11);
++pub const ECDSA_WITH_SHA3_512_OID: asn1::ObjectIdentifier =
++    asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 12);
++
++pub const RSA_WITH_SHA1_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 1, 5);
++pub const RSA_WITH_SHA1_ALT_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 14, 3, 2, 29);
++pub const RSA_WITH_SHA224_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 1, 14);
++pub const RSA_WITH_SHA256_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 1, 11);
++pub const RSA_WITH_SHA384_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 1, 12);
++pub const RSA_WITH_SHA512_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 1, 13);
++pub const RSA_WITH_SHA3_224_OID: asn1::ObjectIdentifier =
++    asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 13);
++pub const RSA_WITH_SHA3_256_OID: asn1::ObjectIdentifier =
++    asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 14);
++pub const RSA_WITH_SHA3_384_OID: asn1::ObjectIdentifier =
++    asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 15);
++pub const RSA_WITH_SHA3_512_OID: asn1::ObjectIdentifier =
++    asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 16);
++
++pub const DSA_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10040, 4, 1);
++pub const DSA_WITH_SHA224_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 1);
++pub const DSA_WITH_SHA256_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 2);
++pub const DSA_WITH_SHA384_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 3);
++pub const DSA_WITH_SHA512_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 4);
++
++pub const DH_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10046, 2, 1);
++pub const DH_KEY_AGREEMENT_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 3, 1);
++
++pub const X25519_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 101, 110);
++pub const X448_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 101, 111);
++
++pub const ED25519_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 101, 112);
++pub const ED448_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 101, 113);
++
++pub const ML_DSA_44_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 17);
++pub const ML_DSA_65_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 18);
++pub const ML_DSA_87_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 3, 19);
++
++pub const ML_KEM_768_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 4, 2);
++pub const ML_KEM_1024_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 4, 3);
++
++// Hashes
++pub const SHA1_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 14, 3, 2, 26);
++pub const SHA224_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 2, 4);
++pub const SHA256_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 2, 1);
++pub const SHA384_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 2, 2);
++pub const SHA512_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 2, 3);
++pub const SHA3_224_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 4, 1, 37476, 3, 2, 1, 99, 7, 224);
++pub const SHA3_256_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 4, 1, 37476, 3, 2, 1, 99, 7, 256);
++pub const SHA3_384_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 4, 1, 37476, 3, 2, 1, 99, 7, 384);
++pub const SHA3_512_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 4, 1, 37476, 3, 2, 1, 99, 7, 512);
++
++// NIST SHA3 OIDs (standard values)
++pub const SHA3_224_NIST_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 2, 7);
++pub const SHA3_256_NIST_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 2, 8);
++pub const SHA3_384_NIST_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 2, 9);
++pub const SHA3_512_NIST_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 2, 10);
++
++pub const MGF1_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 1, 8);
++pub const RSASSA_PSS_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 1, 10);
++
++// Extended key usages
++pub const EKU_SERVER_AUTH_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 3, 1);
++pub const EKU_CLIENT_AUTH_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 3, 2);
++pub const EKU_CODE_SIGNING_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 3, 3);
++pub const EKU_EMAIL_PROTECTION_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 3, 4);
++pub const EKU_TIME_STAMPING_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 3, 8);
++pub const EKU_OCSP_SIGNING_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 5, 5, 7, 3, 9);
++pub const EKU_ANY_KEY_USAGE_OID: asn1::ObjectIdentifier = asn1::oid!(2, 5, 29, 37, 0);
++pub const EKU_CERTIFICATE_TRANSPARENCY_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 3, 6, 1, 4, 1, 11129, 2, 4, 4);
++
++pub const PBES2_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 5, 13);
++pub const PBKDF2_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 5, 12);
++pub const PBE_WITH_MD5_AND_DES_CBC: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 5, 3);
++pub const SCRYPT_OID: asn1::ObjectIdentifier = asn1::oid!(1, 3, 6, 1, 4, 1, 11591, 4, 11);
++
++pub const PBE_WITH_SHA_AND_128_BIT_RC4: asn1::ObjectIdentifier =
++    asn1::oid!(1, 2, 840, 113549, 1, 12, 1, 1);
++pub const PBE_WITH_SHA_AND_3KEY_TRIPLEDES_CBC: asn1::ObjectIdentifier =
++    asn1::oid!(1, 2, 840, 113549, 1, 12, 1, 3);
++pub const PBE_WITH_SHA_AND_40_BIT_RC2_CBC: asn1::ObjectIdentifier =
++    asn1::oid!(1, 2, 840, 113549, 1, 12, 1, 6);
++
++pub const AES_128_CBC_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 1, 2);
++pub const AES_192_CBC_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 1, 22);
++pub const AES_256_CBC_OID: asn1::ObjectIdentifier = asn1::oid!(2, 16, 840, 1, 101, 3, 4, 1, 42);
++
++pub const DES_EDE3_CBC_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 3, 7);
++
++pub const RC2_CBC: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 3, 2);
++
++pub const HMAC_WITH_SHA1_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 2, 7);
++pub const HMAC_WITH_SHA224_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 2, 8);
++pub const HMAC_WITH_SHA256_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 2, 9);
++pub const HMAC_WITH_SHA384_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 2, 10);
++pub const HMAC_WITH_SHA512_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 2, 11);
++
++pub const PRIME_FIELD_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10045, 1, 1);
++pub const CHARACTERISTIC_TWO_FIELD_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 10045, 1, 2);
+diff --git a/rust/cryptography-x509/src/pkcs12.rs b/rust/cryptography-x509/src/pkcs12.rs
+new file mode 100644
+index 0000000..9935d3b
+--- /dev/null
++++ b/rust/cryptography-x509/src/pkcs12.rs
+@@ -0,0 +1,85 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use asn1::ObjectIdentifier;
++
++use crate::common::Utf8StoredBMPString;
++use crate::{pkcs7, pkcs8};
++
++pub const CERT_BAG_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 12, 10, 1, 3);
++pub const KEY_BAG_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 12, 10, 1, 1);
++pub const SHROUDED_KEY_BAG_OID: asn1::ObjectIdentifier =
++    asn1::oid!(1, 2, 840, 113549, 1, 12, 10, 1, 2);
++pub const X509_CERTIFICATE_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 9, 22, 1);
++pub const FRIENDLY_NAME_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 9, 20);
++pub const LOCAL_KEY_ID_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 9, 21);
++pub const JDK_TRUSTSTORE_USAGE: asn1::ObjectIdentifier =
++    asn1::oid!(2, 16, 840, 1, 113894, 746875, 1, 1);
++
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct Pfx<'a> {
++    pub version: u8,
++    pub auth_safe: pkcs7::ContentInfo<'a>,
++    pub mac_data: Option<MacData<'a>>,
++}
++
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct MacData<'a> {
++    pub mac: pkcs7::DigestInfo<'a>,
++    pub salt: &'a [u8],
++    #[default(1u64)]
++    pub iterations: u64,
++}
++
++#[derive(asn1::Asn1Write)]
++pub struct SafeBag<'a> {
++    pub _bag_id: asn1::DefinedByMarker<asn1::ObjectIdentifier>,
++    #[defined_by(_bag_id)]
++    pub bag_value: asn1::Explicit<BagValue<'a>, 0>,
++    pub attributes: Option<asn1::SetOfWriter<'a, Attribute<'a>, Vec<Attribute<'a>>>>,
++}
++
++#[derive(asn1::Asn1Write)]
++pub struct Attribute<'a> {
++    pub _attr_id: asn1::DefinedByMarker<asn1::ObjectIdentifier>,
++    #[defined_by(_attr_id)]
++    pub attr_values: AttributeSet<'a>,
++}
++
++#[derive(asn1::Asn1DefinedByWrite)]
++pub enum AttributeSet<'a> {
++    #[defined_by(FRIENDLY_NAME_OID)]
++    FriendlyName(asn1::SetOfWriter<'a, Utf8StoredBMPString<'a>, [Utf8StoredBMPString<'a>; 1]>),
++
++    #[defined_by(LOCAL_KEY_ID_OID)]
++    LocalKeyId(asn1::SetOfWriter<'a, &'a [u8], [&'a [u8]; 1]>),
++
++    #[defined_by(JDK_TRUSTSTORE_USAGE)]
++    JDKTruststoreUsage(asn1::SetOfWriter<'a, ObjectIdentifier, [ObjectIdentifier; 1]>),
++}
++
++#[derive(asn1::Asn1DefinedByWrite)]
++pub enum BagValue<'a> {
++    #[defined_by(CERT_BAG_OID)]
++    CertBag(Box<CertBag<'a>>),
++
++    #[defined_by(KEY_BAG_OID)]
++    KeyBag(asn1::Tlv<'a>),
++
++    #[defined_by(SHROUDED_KEY_BAG_OID)]
++    ShroudedKeyBag(pkcs8::EncryptedPrivateKeyInfo<'a>),
++}
++
++#[derive(asn1::Asn1Write)]
++pub struct CertBag<'a> {
++    pub _cert_id: asn1::DefinedByMarker<asn1::ObjectIdentifier>,
++    #[defined_by(_cert_id)]
++    pub cert_value: asn1::Explicit<CertType<'a>, 0>,
++}
++
++#[derive(asn1::Asn1DefinedByWrite)]
++pub enum CertType<'a> {
++    #[defined_by(X509_CERTIFICATE_OID)]
++    X509(asn1::OctetStringEncoded<crate::certificate::Certificate<'a>>),
++}
+diff --git a/rust/cryptography-x509/src/pkcs7.rs b/rust/cryptography-x509/src/pkcs7.rs
+new file mode 100644
+index 0000000..5538675
+--- /dev/null
++++ b/rust/cryptography-x509/src/pkcs7.rs
+@@ -0,0 +1,179 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use crate::{certificate, common, csr, name};
++
++pub const PKCS7_DATA_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 7, 1);
++pub const PKCS7_SIGNED_DATA_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 7, 2);
++pub const PKCS7_ENVELOPED_DATA_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 7, 3);
++pub const PKCS7_ENCRYPTED_DATA_OID: asn1::ObjectIdentifier = asn1::oid!(1, 2, 840, 113549, 1, 7, 6);
++
++// RFC 2315 section 7
++//
++// ContentInfo ::= SEQUENCE {
++//   contentType ContentType,
++//   content [0] EXPLICIT ANY DEFINED BY contentType OPTIONAL }
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct ContentInfo<'a> {
++    pub _content_type: asn1::DefinedByMarker<asn1::ObjectIdentifier>,
++
++    #[defined_by(_content_type)]
++    pub content: Content<'a>,
++}
++
++#[allow(clippy::large_enum_variant)]
++#[derive(asn1::Asn1DefinedByWrite, asn1::Asn1DefinedByRead)]
++pub enum Content<'a> {
++    #[defined_by(PKCS7_ENVELOPED_DATA_OID)]
++    EnvelopedData(asn1::Explicit<Box<EnvelopedData<'a>>, 0>),
++    #[defined_by(PKCS7_SIGNED_DATA_OID)]
++    SignedData(asn1::Explicit<Box<SignedData<'a>>, 0>),
++    #[defined_by(PKCS7_DATA_OID)]
++    Data(Option<asn1::Explicit<&'a [u8], 0>>),
++    #[defined_by(PKCS7_ENCRYPTED_DATA_OID)]
++    EncryptedData(asn1::Explicit<EncryptedData<'a>, 0>),
++}
++
++// RFC 2315 section 9.1
++//
++// SignedData ::= SEQUENCE {
++//   version Version,
++//   digestAlgorithms DigestAlgorithmIdentifiers,
++//   contentInfo ContentInfo,
++//   certificates [0] IMPLICIT ExtendedCertificatesAndCertificates OPTIONAL,
++//   crls [1] IMPLICIT CertificateRevocationLists OPTIONAL,
++//   signerInfos SignerInfos }
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct SignedData<'a> {
++    pub version: u8,
++    pub digest_algorithms: common::Asn1ReadableOrWritable<
++        asn1::SetOf<'a, common::AlgorithmIdentifier<'a>>,
++        asn1::SetOfWriter<'a, common::AlgorithmIdentifier<'a>>,
++    >,
++    pub content_info: ContentInfo<'a>,
++    #[implicit(0)]
++    pub certificates: Option<
++        common::Asn1ReadableOrWritable<
++            asn1::SetOf<'a, certificate::Certificate<'a>>,
++            asn1::SetOfWriter<'a, certificate::Certificate<'a>>,
++        >,
++    >,
++
++    // We don't ever supply any of these, so for now, don't fill out the fields.
++    #[implicit(1)]
++    pub crls: Option<
++        common::Asn1ReadableOrWritable<
++            asn1::SetOf<'a, asn1::Sequence<'a>>,
++            asn1::SetOfWriter<'a, asn1::Sequence<'a>>,
++        >,
++    >,
++
++    pub signer_infos: common::Asn1ReadableOrWritable<
++        asn1::SetOf<'a, SignerInfo<'a>>,
++        asn1::SetOfWriter<'a, SignerInfo<'a>>,
++    >,
++}
++
++// RFC 2315 section 9.2
++//
++// SignerInfo ::= SEQUENCE {
++//   version Version,
++//   issuerAndSerialNumber IssuerAndSerialNumber,
++//   digestAlgorithm DigestAlgorithmIdentifier,
++//   authenticatedAttributes [0] IMPLICIT Attributes OPTIONAL,
++//   digestEncryptionAlgorithm DigestEncryptionAlgorithmIdentifier,
++//   encryptedDigest EncryptedDigest,
++//   unauthenticatedAttributes [1] IMPLICIT Attributes OPTIONAL }
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct SignerInfo<'a> {
++    pub version: u8,
++    pub issuer_and_serial_number: IssuerAndSerialNumber<'a>,
++    pub digest_algorithm: common::AlgorithmIdentifier<'a>,
++    #[implicit(0)]
++    pub authenticated_attributes: Option<csr::Attributes<'a>>,
++
++    pub digest_encryption_algorithm: common::AlgorithmIdentifier<'a>,
++    pub encrypted_digest: &'a [u8],
++
++    #[implicit(1)]
++    pub unauthenticated_attributes: Option<csr::Attributes<'a>>,
++}
++
++// RFC 2315 section 10.1
++//
++// EnvelopedData ::= SEQUENCE {
++//   version Version,
++//   recipientInfos RecipientInfos,
++//   encryptedContentInfo EncryptedContentInfo }
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct EnvelopedData<'a> {
++    pub version: u8,
++    pub recipient_infos: common::Asn1ReadableOrWritable<
++        asn1::SetOf<'a, RecipientInfo<'a>>,
++        asn1::SetOfWriter<'a, RecipientInfo<'a>>,
++    >,
++    pub encrypted_content_info: EncryptedContentInfo<'a>,
++}
++
++// RFC 2315 section 10.2
++//
++// RecipientInfo ::= SEQUENCE {
++//   version Version,
++//   issuerAndSerialNumber IssuerAndSerialNumber,
++//   keyEncryptionAlgorithm KeyEncryptionAlgorithmIdentifier,
++//   encryptedKey EncryptedKey }
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct RecipientInfo<'a> {
++    pub version: u8,
++    pub issuer_and_serial_number: IssuerAndSerialNumber<'a>,
++    pub key_encryption_algorithm: common::AlgorithmIdentifier<'a>,
++    pub encrypted_key: &'a [u8],
++}
++
++// RFC 2315 section 6.7
++//
++// IssuerAndSerialNumber ::= SEQUENCE {
++//   issuer Name,
++//   serialNumber CertificateSerialNumber }
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct IssuerAndSerialNumber<'a> {
++    pub issuer: name::Name<'a>,
++    pub serial_number: asn1::BigInt<'a>,
++}
++
++// RFC 2315 section 13
++//
++// EncryptedData ::= SEQUENCE {
++//   version Version,
++//   encryptedContentInfo EncryptedContentInfo }
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct EncryptedData<'a> {
++    pub version: u8,
++    pub encrypted_content_info: EncryptedContentInfo<'a>,
++}
++
++// RFC 2315 section 10.1
++//
++// EncryptedContentInfo ::= SEQUENCE {
++//   contentType ContentType,
++//   contentEncryptionAlgorithm ContentEncryptionAlgorithmIdentifier,
++//   encryptedContent [0] IMPLICIT EncryptedContent OPTIONAL }
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct EncryptedContentInfo<'a> {
++    pub content_type: asn1::ObjectIdentifier,
++    pub content_encryption_algorithm: common::AlgorithmIdentifier<'a>,
++    #[implicit(0)]
++    pub encrypted_content: Option<&'a [u8]>,
++}
++
++// RFC 2315 section 9.4
++//
++// DigestInfo ::= SEQUENCE {
++//   digestAlgorithm DigestAlgorithmIdentifier,
++//   digest Digest }
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct DigestInfo<'a> {
++    pub algorithm: common::AlgorithmIdentifier<'a>,
++    pub digest: &'a [u8],
++}
+diff --git a/rust/cryptography-x509/src/pkcs8.rs b/rust/cryptography-x509/src/pkcs8.rs
+new file mode 100644
+index 0000000..c1f2b88
+--- /dev/null
++++ b/rust/cryptography-x509/src/pkcs8.rs
+@@ -0,0 +1,12 @@
++// This file is dual licensed under the terms of the Apache License, Version
++// 2.0, and the BSD License. See the LICENSE file in the root of this repository
++// for complete details.
++
++use crate::common::AlgorithmIdentifier;
++
++// RFC 5208, Section 6
++#[derive(asn1::Asn1Write, asn1::Asn1Read)]
++pub struct EncryptedPrivateKeyInfo<'a> {
++    pub encryption_algorithm: AlgorithmIdentifier<'a>,
++    pub encrypted_data: &'a [u8],
++}
+diff --git a/rust/tsp-asn1/Cargo.toml b/rust/tsp-asn1/Cargo.toml
+index 416d479..1b9e356 100644
+--- a/rust/tsp-asn1/Cargo.toml
++++ b/rust/tsp-asn1/Cargo.toml
+@@ -10,7 +10,7 @@ name = "tsp_asn1"
+ 
+ [dependencies]
+ asn1.workspace = true
+-cryptography-x509.workspace = true
++cryptography-x509 = { path = "../cryptography-x509" }
+ 
+ [dev-dependencies]
+ hex.workspace = true
+\ No newline at end of file
