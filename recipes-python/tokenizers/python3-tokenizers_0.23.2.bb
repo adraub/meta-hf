@@ -5,7 +5,7 @@ LIC_FILES_CHKSUM = "file://tokenizers/LICENSE;md5=86d3f3a95c324c9479bd8986968f43
 S = "${UNPACKDIR}/${BP}/bindings/python"
 
 inherit pypi cargo python_maturin cargo-update-recipe-crates
-SRC_URI[sha256sum] = "473b83b915e547aa366d1eee11806deaf419e17be16310ac0a14077f1e28f917"
+SRC_URI[sha256sum] = "7f0f085686b9de0d0079e6f874ae053600db64c5d13049e0bbc0119926d25aac"
 
 RDEPENDS:${PN} += "python3-huggingface-hub "
 

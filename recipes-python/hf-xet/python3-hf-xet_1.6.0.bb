@@ -7,6 +7,6 @@ S = "${UNPACKDIR}/${BP}/hf_xet"
 PYPI_PACKAGE = "hf_xet"
 
 inherit pypi cargo python_maturin cargo-update-recipe-crates
-SRC_URI[sha256sum] = "73044bd31bae33c984af832d19c752a0dffb67518fee9ddbd91d616e1101cf47"
+SRC_URI[sha256sum] = "2e58454a340b3556dfa4972d5451aff4fba8dd42a236600ba1a1d2b1514f0fef"
 
 include ${BPN}-crates.inc
