@@ -20,8 +20,8 @@ def clean_bb_content(content):
     """Removes comments and collapses multi-line variable definitions."""
     # Remove full line comments
     content = re.sub(r'^\s*#.*$', '', content, flags=re.MULTILINE)
-    # Collapse line continuations (backslash followed by newline)
-    content = re.sub(r'\\\n\s*', ' ', content)
+    # Collapse line continuations, allowing whitespace between the backslash and newline.
+    content = re.sub(r'\\[ \t]*\n\s*', ' ', content)
     return content
 
 def extract_recipe_variables(content):
@@ -68,6 +68,9 @@ def pypi_req_to_yocto_pkg(req_string):
     # Ignore conditional dependencies tied to "extras" (e.g., testing, docs)
     if 'extra ==' in req_string or 'extra==' in req_string:
         return None
+    elif 'python_version <' in req_string or 'python_version<' in req_string:
+        print("Ignored legacy python dependency: " +req_string)
+        return None
         
     # Extract the base package name (ignore version constraints and environment markers)
     # E.g., "charset-normalizer (<4,>=2) ; python_version >= '3'" -> "charset-normalizer"
@@ -76,6 +79,9 @@ def pypi_req_to_yocto_pkg(req_string):
         raw_name = match.group(1)
         # Standard Yocto conversion: lower case, replace underscores with dashes
         clean_name = raw_name.lower().replace('_', '-')
+        #meta-python-ai uses pytorch instead of pypi naming
+        if clean_name == 'torch':
+            clean_name = 'pytorch'
         return f"python3-{clean_name}"
     return None
 
