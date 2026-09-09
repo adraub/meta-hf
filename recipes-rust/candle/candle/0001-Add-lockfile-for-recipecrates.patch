@@ -2,7 +2,7 @@ From 7b2df3331d38baf2917be3663c7a04429a42dd4d Mon Sep 17 00:00:00 2001
 From: adraub <adraub@gmail.com>
 Date: Tue, 1 Sep 2026 21:01:04 +0200
 Subject: [PATCH] Add lockfile for recipecrates
-Upstream-Status: Pending
+Upstream-Status: Inappropriate
 
 ---
  .gitignore |    2 +-

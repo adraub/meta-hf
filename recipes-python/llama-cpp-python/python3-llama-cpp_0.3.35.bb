@@ -1,4 +1,4 @@
-SUMMARY = "Python bindings for llama.cpp."
+SUMMARY = "Python bindings for llama.cpp"
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://LICENSE.md;md5=7b314940bc52f236ef5c740707a5a216"
 

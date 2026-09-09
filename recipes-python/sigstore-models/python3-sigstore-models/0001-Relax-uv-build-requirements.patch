@@ -2,6 +2,7 @@ From d69da2960a7f4c0aee7946e7906a8fbb72c1d0a0 Mon Sep 17 00:00:00 2001
 From: adraub <adraub@gmail.com>
 Date: Mon, 7 Sep 2026 17:48:33 +0200
 Subject: [PATCH] Relax uv-build requirements
+Upstream-Status: Pending
 
 ---
  pyproject.toml | 2 +-

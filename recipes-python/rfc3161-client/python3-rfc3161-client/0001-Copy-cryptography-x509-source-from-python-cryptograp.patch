@@ -3,6 +3,7 @@ From: adraub <adraub@gmail.com>
 Date: Mon, 7 Sep 2026 20:41:02 +0200
 Subject: [PATCH] Copy cryptography-x509 source from python-cryptography 49.0.0
  since no crates.io exists
+Upstream-Status: Inappropriate
 
 ---
  Cargo.lock                                 |   3 +-

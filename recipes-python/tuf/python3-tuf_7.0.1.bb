@@ -1,6 +1,6 @@
 SUMMARY = "A secure updater framework for Python"
 LICENSE = "MIT"
-LIC_FILES_CHKSUM = "file://LICENSE;md5=86d3f3a95c324c9479bd8986968f4327"
+LIC_FILES_CHKSUM = "file://LICENSE;md5=8cc789b082b3d97e1ccc5261f8594d3f"
 
 inherit pypi python_hatchling
 SRC_URI += "file://0001-Relax-hatchling-requirements.patch"
