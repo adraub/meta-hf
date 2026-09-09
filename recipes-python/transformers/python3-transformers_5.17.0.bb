@@ -3,7 +3,7 @@ LICENSE = "Apache-2.0"
 LIC_FILES_CHKSUM = "file://LICENSE;md5=d15f16de23b5d7f8e28dd073d2ed8b28"
 
 inherit pypi python_setuptools_build_meta
-SRC_URI[sha256sum] = "17b0eac726ddc55e84ac58946063e0c6d37fd000c456b581f050ea0f4e822869"
+SRC_URI[sha256sum] = "a153be279169b55b92d8000bf4af294aed684503d091cca7804da2dd8a9de000"
 
 RDEPENDS:${PN} += " \
     python3-huggingface-hub \

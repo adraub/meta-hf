@@ -8,14 +8,14 @@ repos:
   # BitBake was decoupled and uses numerical branch versions (2.18 for Wrynose)
   bitbake:
     url: https://git.openembedded.org/bitbake
-    branch: "2.18"
+    branch: "master"
     layers: {}
     path: "build/layers/bitbake"
 
   # Core metadata now comes directly from openembedded-core
   openembedded-core:
     url: https://git.openembedded.org/openembedded-core
-    branch: wrynose
+    branch: master
     path: "build/layers/openembedded-core"
     layers:
       meta:
@@ -23,7 +23,7 @@ repos:
   # The Poky distro and BSP metadata were moved to meta-yocto
   meta-yocto:
     url: https://git.yoctoproject.org/meta-yocto
-    branch: wrynose
+    branch: master
     path: "build/layers/meta-yocto"
     layers:
       meta-poky:
@@ -31,7 +31,7 @@ repos:
 
   meta-openembedded:
     url: "https://git.openembedded.org/meta-openembedded"
-    branch: "wrynose"
+    branch: "master"
     path: "build/layers/meta-openembedded"
     layers:
       meta-oe:
@@ -42,27 +42,27 @@ repos:
 
   meta-clang:
     url: "https://github.com/kraj/meta-clang.git"
-    branch: "wrynose"
+    branch: "master"
     path: "build/layers/meta-clang"
 
   meta-clang-revival:
     url: "https://github.com/zboszor/meta-clang-revival.git"
-    branch: "wrynose"
+    branch: "main"
     path: "build/layers/meta-clang-revival"
 
   meta-python-ai:
     url: "https://github.com/zboszor/meta-python-ai.git"
-    branch: "wrynose"
+    branch: "master"
     path: "build/layers/meta-python-ai"
 
   meta-virtualization:
     url: "https://git.yoctoproject.org/meta-virtualization"
-    branch: "wrynose"
+    branch: "master"
     path: "build/layers/meta-virtualization"
 
   meta-hf:
     url: "https://github.com/adraub/meta-hf.git"
-    branch: "wrynose"
+    branch: "master"
     path: "build/layers/meta-hf"
 
 local_conf_header:
