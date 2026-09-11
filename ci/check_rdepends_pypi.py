@@ -71,12 +71,17 @@ def pypi_req_to_yocto_pkg(req_string):
     elif 'python_version <' in req_string or 'python_version<' in req_string:
         print("Ignored legacy python dependency: " +req_string)
         return None
+    elif 'setuptools' in req_string or 'cython' in req_string or 'packaging' in req_string:
+        return None  # These are typically provided by the build system and not needed in RDEPENDS
         
     # Extract the base package name (ignore version constraints and environment markers)
     # E.g., "charset-normalizer (<4,>=2) ; python_version >= '3'" -> "charset-normalizer"
     match = re.match(r'^([a-zA-Z0-9_\-\.]+)', req_string.strip())
     if match:
         raw_name = match.group(1)
+        # remove 'python-' prefix if present
+        if 'python-' in raw_name:
+            raw_name = raw_name.replace('python-', '', 1)
         # Standard Yocto conversion: lower case, replace underscores with dashes
         clean_name = raw_name.lower().replace('_', '-')
         #meta-python-ai uses pytorch instead of pypi naming
