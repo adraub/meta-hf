@@ -12,5 +12,9 @@ This project depends heavily on [meta-python-ai](https://github.com/zboszor/meta
 ## Compatibility
 As transformers and diffusers contains a lot of Rust dependency, those recipes are only available from yocto wrynose. Previous yocto release did not provide sufficient Rust compiler.
 
-## Maintainer
-<adraub@gmail.com>
+## Contributing
+
+You are encouraged to follow Github Pull request workflow
+to share changes and following commit message guidelines are recommended: [OE patch guidelines](https://www.openembedded.org/wiki/Commit_Patch_Message_Guidelines).
+
+Maintainer : <adraub@gmail.com>
