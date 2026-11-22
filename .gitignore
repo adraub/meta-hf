@@ -1,1 +1,16 @@
+#Kas venv files
+bin/
 venv/
+lib/
+lib64
+pyvenv.cfg
+
+#Kas generated
+build/
+.kas_shell_history
+
+#Dependency checker artifacts
+dependency-checker/build
+dependency-checker/venv-res
+dependency-checker/*.txt
+dependency-checker/*.json
