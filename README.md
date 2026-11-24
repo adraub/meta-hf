@@ -1,5 +1,18 @@
 # meta-hf
-OpenEmbedded/Yocto layer providing recipes for Hugging Face open-source libraries
+OpenEmbedded/Yocto layer providing recipes for Hugging Face open-source libraries:
+- candle
+- datasets
+- diffusers
+- evaluate
+- ggml
+- hf-xet
+- huggingface-hub
+- kernels
+- llama-cpp
+- safetensors
+- timm
+- tokenizers
+- transformers
 
 ## DISCLAIMER
 This project is an unofficial Yocto layer. It is not affiliated with, endorsed by, or sponsored by Hugging Face, Inc.

@@ -5,7 +5,7 @@ LIC_FILES_CHKSUM = "file://LICENSE;md5=223b26b3c1143120c87e2b13111d3e99"
 SRC_URI = "git://github.com/ggml-org/llama.cpp.git;protocol=https;nobranch=1"
 inherit cmake
 
-SRCREV = "5266f24da75dc449bd56cbed7addb9c8e4a6a73e"
+SRCREV = "b1b770d90d94cad9e9ea5b993bdbc383a522fb28"
 
 PACKAGECONFIG ??= "${@bb.utils.filter('DISTRO_FEATURES', 'vulkan', d)}"
 PACKAGECONFIG[vulkan] = "-DGGML_VULKAN=ON -DVulkan_INCLUDE_DIR=${STAGING_INCDIR} -DVulkan_LIBRARY=${STAGING_LIBDIR}/libvulkan.so -DGGML_SHADER_NATIVE_PATH=${STAGING_DIR_NATIVE},-DGGML_VULKAN=OFF,vulkan-headers vulkan-loader spirv-headers shaderc-native,vulkan-loader"
