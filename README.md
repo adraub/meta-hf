@@ -13,6 +13,7 @@ OpenEmbedded/Yocto layer providing recipes for Hugging Face open-source librarie
 - timm
 - tokenizers
 - transformers
+- xet-core
 
 ## DISCLAIMER
 This project is an unofficial Yocto layer. It is not affiliated with, endorsed by, or sponsored by Hugging Face, Inc.
