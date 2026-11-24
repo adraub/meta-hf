@@ -14,6 +14,7 @@ OpenEmbedded/Yocto layer providing recipes for Hugging Face open-source librarie
 - timm
 - tokenizers
 - transformers
+- whisper-cpp
 - xet-core
 
 ## DISCLAIMER
