@@ -10,6 +10,7 @@ OpenEmbedded/Yocto layer providing recipes for Hugging Face open-source librarie
 - kernels
 - llama-cpp
 - safetensors
+- smolagents
 - timm
 - tokenizers
 - transformers
