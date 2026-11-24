@@ -5,7 +5,7 @@ LIC_FILES_CHKSUM = "file://LICENSE.md;md5=7b314940bc52f236ef5c740707a5a216"
 inherit pypi python_setuptools_build_meta
 
 PYPI_PACKAGE = "llama_cpp_python"
-SRC_URI[sha256sum] = "1139dbb54509074b70893fab8554e3b079aa9f4d312058ce4018ef0019e3de12"
+SRC_URI[sha256sum] = "bf4108fc76e933ea4969b61b1e281a2d232dd3e43361d1fdca5e2e029d62f729"
 
 PACKAGECONFIG ??= "${@bb.utils.filter('DISTRO_FEATURES', 'vulkan', d)}"
 PACKAGECONFIG[vulkan] = "-DGGML_VULKAN=ON -DVulkan_INCLUDE_DIR=${STAGING_INCDIR} -DVulkan_LIBRARY=${STAGING_LIBDIR}/libvulkan.so -DGGML_SHADER_NATIVE_PATH=${STAGING_DIR_NATIVE},-DGGML_VULKAN=OFF,vulkan-headers vulkan-loader spirv-headers shaderc-native,vulkan-loader"
